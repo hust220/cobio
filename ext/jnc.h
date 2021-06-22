@@ -66,6 +66,21 @@ T lexical_cast(U && u) {
 #define JN_FLT(a) jnc::lexical_cast<float>(a)
 #define JN_STR(a) jnc::lexical_cast<Str>(a)
 
+template<typename T>
+void hash_combine(std::size_t& seed, const T &value) {
+    seed ^= (std::size_t)value + 0x9e3779b9 + (seed<<6) + (seed>>2);
+}
+
+template <class It>
+std::size_t hash_range(It first, It last) {
+    std::size_t seed = 0;
+    for(; first != last; ++first)
+    {
+        hash_combine(seed, *first);
+    }
+    return seed;
+}
+
 template<typename Stream_>
 void stream_push(Stream_ && stream) {
 }
@@ -267,20 +282,25 @@ public:
     int num = -1;
     bool is_std = true;
 
-    Atom &get_atom(Str name) {
+    Atom &atom(Str name) {
         for (auto &&atom : *this) {
             if (atom.name == name) return atom;
         }
-//        std::cerr << *this << std::endl;
         JN_DIE("Atom '" + name + "' not found");
     }
 
-    const Atom &get_atom(Str name) const {
+    const Atom &atom(Str name) const {
         for (auto &&atom : *this) {
             if (atom.name == name) return atom;
         }
-//        std::cerr << *this << std::endl;
         JN_DIE("Atom '" + name + "' not found");
+    }
+
+    bool has_atom(Str name) const {
+        for (auto &&atom : *this) {
+            if (atom.name == name) return true;
+        }
+        return false;
     }
 };
 
@@ -352,9 +372,15 @@ public:
 
     Vec<Residue *> presidues() {
         Vec<Residue *> rs;
+        int ir = 0;
         for (auto && chain : *this) {
             for (auto && res : chain) {
+                if (ir == 0) {
+                    std::cout << "presidues" << std::endl;
+                    std::cout << &res << std::endl;
+                }
                 rs.push_back(&res);
+                ir++;
             }
         }
         return std::move(rs);
@@ -587,7 +613,7 @@ Pdb read_pdb(const Str &filename) {
     Pdb pdb;
     PdbReader pdb_reader(pdb);
     pdb_reader.read(filename);
-    return pdb;
+    return std::move(pdb);
 }
 
 class PdbWriter {
@@ -1193,6 +1219,14 @@ struct Atom {
     Str subst_name = "";
     double charge = DBL_MAX;
     Str status_bit = "";
+
+    double &operator[](int i) {
+        return i == 0 ? x : (i == 1 ? y : z);
+    }
+
+    const double &operator[](int i) const {
+        return i == 0 ? x : (i == 1 ? y : z);
+    }
 };
 using Atoms = Vec<Atom>;
 
@@ -1460,9 +1494,11 @@ namespace geom {
 
 template<typename NumType>
 using MatX = Eigen::Matrix<NumType, -1, -1>;
+using Matd = MatX<double>;
 
 template<typename NumType>
 using VecX = Eigen::Matrix<NumType, -1, 1>;
+using Vecd = VecX<double>;
 
 template<typename T, typename U>
 void translate(T &&t, const U &u) {
@@ -1582,13 +1618,18 @@ public:
     }
 };
 
+template<typename T>
+T square(T n) {
+    return n*n;
+}
+
 template<class P1, class P2> 
-inline double distance(const P1 &p1, const P2 &p2) {
+double distance(const P1 &p1, const P2 &p2) {
     return std::sqrt(square(p1[0]-p2[0])+square(p1[1]-p2[1])+square(p1[2]-p2[2]));
 }
 
 template<class P1, class P2> 
-inline double dist2(const P1 &p1, const P2 &p2) {
+double dist2(const P1 &p1, const P2 &p2) {
     return square(p1[0]-p2[0])+square(p1[1]-p2[1])+square(p1[2]-p2[2]);
 }
 
@@ -1677,7 +1718,7 @@ inline double dihedral(const P1 &p1, const P2 &p2, const P3 &p3, const P4 &p4) {
 } 
 
 template<typename NumType>
-class Superposition {
+class SupPos {
 public:
     using mat_t = MatX<NumType>;
     using vec_t = VecX<NumType>;
@@ -1687,9 +1728,9 @@ public:
     vec_t c2;
     NumType rmsd;
 
-    Superposition() = default;
+    SupPos() = default;
 
-    Superposition(const mat_t &m, const mat_t &n) {
+    SupPos(const mat_t &m, const mat_t &n) {
         init(m, n);
     }
 
@@ -1754,19 +1795,19 @@ public:
 };
 
 template<typename NumType>
-Superposition<NumType> suppos(const MatX<NumType> &m, const MatX<NumType> &n) {
-    return Superposition<NumType>(m, n);
+SupPos<NumType> suppos(const MatX<NumType> &m, const MatX<NumType> &n) {
+    return SupPos<NumType>(m, n);
 }
 
 template<typename T, typename NumType>
-Superposition<NumType> suppos(T &t, const MatX<NumType> &m, const MatX<NumType> &n) {
-    Superposition<NumType> sp(m, n);
+SupPos<NumType> suppos(T &t, const MatX<NumType> &m, const MatX<NumType> &n) {
+    SupPos<NumType> sp(m, n);
     sp.apply_m(t);
     return sp;
 }
 
 template<typename NumType, typename U, typename F, typename V>
-Superposition<NumType> suppos(MatX<NumType> &src, const U &src_indices, const F &tgt, const V &tgt_indices) {
+SupPos<NumType> suppos(MatX<NumType> &src, const U &src_indices, const F &tgt, const V &tgt_indices) {
     MatX<NumType> m(src_indices.size(), 3), n(tgt_indices.size(), 3);
     for (int i = 0; i < src_indices.size(); i++) for (int j = 0; j < 3; j++) {
         m(i, j) = src(src_indices[i], j);
@@ -1781,7 +1822,7 @@ Superposition<NumType> suppos(MatX<NumType> &src, const U &src_indices, const F 
 
 template<typename NumType1, typename NumType2>
 NumType1 rmsd(const MatX<NumType1> &x, const MatX<NumType2> &y) {
-    return Superposition<NumType1>(x, y).rmsd;
+    return SupPos<NumType1>(x, y).rmsd;
 }
 
 template<typename NumType, typename A, typename B, typename C, typename D>

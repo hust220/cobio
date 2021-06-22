@@ -1,0 +1,440 @@
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+#include "jnc.h"
+#include <numeric>
+
+namespace py = pybind11;
+
+#define STRINGIFY(x) #x
+#define MACRO_STRINGIFY(x) STRINGIFY(x)
+
+class Array2d {
+public:
+    std::array<int, 2> shape {{0,0}};
+    std::array<int, 2> strides {{0,0}};
+    double *data = NULL;
+
+    Array2d() {
+        for (auto && i : shape) i = 0;
+        for (auto && i : strides) i = 0;
+        data = NULL;
+    }
+
+    ~Array2d() {
+//        std::cout << "deleting array2d" << std::endl;
+//        std::cout << data << ' ' << shape[0] << ' ' << shape[1] << std::endl;
+        if (data != NULL) delete[] data;
+    }
+
+    Array2d(Array2d &&arr) {
+//        std::cout << "moving array2d" << std::endl;
+//        std::cout << data << ' ' << shape[0] << ' ' << shape[1] << std::endl;
+//        std::cout << arr.data << ' ' << arr.shape[0] << ' ' << arr.shape[1] << std::endl;
+        std::swap(shape, arr.shape);
+        std::swap(strides, arr.strides);
+        std::swap(data, arr.data);
+    }
+
+    Array2d(const std::array<int, 2> &shape_) : shape(shape_) {
+        int size = std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<int>());
+        data = new double[size];
+        for (int i = 0; i < size; i++) data[i] = 0;
+        strides[0] = shape[1];
+        strides[1] = 1;
+    }
+
+    double &operator ()(int i, int j) {
+        long int n = i*strides[0]+j*strides[1];
+        return data[n];
+    }
+};
+
+class Array3d {
+public:
+    std::array<int, 3> shape {{0,0,0}};
+    std::array<int, 3> strides {{0,0,0}};
+    double *data = NULL;
+
+    Array3d() {
+        for (auto && i : shape) i = 0;
+        for (auto && i : strides) i = 0;
+        data = NULL;
+    }
+
+    ~Array3d() {
+//        std::cout << "deleting array3d" << std::endl;
+//        std::cout << data << ' ' << shape[0] << ' ' << shape[1] << ' ' << shape[2] << std::endl;
+        if (data != NULL) delete[] data;
+    }
+
+    Array3d(Array3d &&arr) {
+//        std::cout << "moving array3d" << std::endl;
+//        std::cout << data << ' ' << shape[0] << ' ' << shape[1] << ' ' << shape[2] << std::endl;
+//        std::cout << arr.data << ' ' << arr.shape[0] << ' ' << arr.shape[1] << ' ' << arr.shape[2] << std::endl;
+        std::swap(shape, arr.shape);
+        std::swap(strides, arr.strides);
+        std::swap(data, arr.data);
+    }
+
+     Array3d(const std::array<int, 3> &shape_) : shape(shape_) {
+        int size = std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<int>());
+        data = new double[size];
+        for (int i = 0; i < size; i++) data[i] = 0;
+        strides[0] = shape[1]*shape[2];
+        strides[1] = shape[2];
+        strides[2] = 1;
+    }
+
+    double &operator ()(int i, int j, int k) {
+        long int n = i*strides[0]+j*strides[1]+k*strides[2];
+        return data[n];
+    }
+};
+
+class Array4d {
+public:
+    std::array<int, 4> shape {{0,0,0,0}};
+    std::array<int, 4> strides {{0,0,0,0}};
+    double *data = NULL;
+
+    Array4d() {
+        for (auto && i : shape) i = 0;
+        for (auto && i : strides) i = 0;
+        data = NULL;
+    }
+
+    ~Array4d() {
+        if (data != NULL) delete[] data;
+    }
+
+    Array4d(Array4d &&arr) {
+        std::swap(shape, arr.shape);
+        std::swap(strides, arr.strides);
+        std::swap(data, arr.data);
+    }
+
+     Array4d(const std::array<int, 4> &shape_) : shape(shape_) {
+        int size = std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<int>());
+        data = new double[size];
+        for (int i = 0; i < size; i++) data[i] = 0;
+        strides[0] = shape[1]*shape[2]*shape[3];
+        strides[1] = shape[2]*shape[3];
+        strides[2] = shape[3];
+        strides[3] = 1;
+    }
+
+    double &operator ()(int i, int j, int k, int l) {
+        long int n = i*strides[0]+j*strides[1]+k*strides[2]+l*strides[3];
+        return data[n];
+    }
+};
+
+int add(int i, int j) {
+    return i + j;
+}
+
+int atom_type(const std::string &atom_name) {
+    static std::vector<std::string> atom_names {"H", "C", "O", "N", "P", "S", "F", "Cl"};
+
+    auto get_score = [](const std::string &name1, const std::string &name2){
+        int score = 0;
+        for (size_t i = 0; i < name1.size() && i < name2.size(); i++) {
+            if (name1[i] == name2[i]) {
+                score += 2;
+            }
+        }
+        return score;
+    };
+
+    std::vector<int> scores(atom_names.size()+1);
+    size_t i = 0;
+    for (; i < atom_names.size(); i++) {
+        scores[i] = get_score(atom_name, atom_names[i]);
+    }
+    scores[i] = 1;
+
+    auto it = std::max_element(scores.begin(), scores.end());
+    int d = std::distance(scores.begin(), it);
+    return d;
+}
+
+std::tuple<Array2d, Array3d, int> r3sp_input(const std::string &rnafile, const std::string &atomname, int nbins=64, double binsize=2.0, int max_len = -1) {
+    auto rna = jnc::pdb::read_pdb(rnafile);
+
+    if (rna.size() == 0) {
+        return std::make_tuple(Array2d(), Array3d(), -1);
+    }
+
+    auto rs = rna[0].presidues();
+    int n = rs.size();
+
+    if (max_len == -1) {
+        max_len = n;
+    }
+
+    if (n == 0 || n > max_len) {
+        return std::make_tuple(Array2d(), Array3d(), -1);
+    }
+
+    for (auto r : rs) {
+        if (!r->has_atom(atomname)) {
+            return std::make_tuple(Array2d(), Array3d(), -1);
+        }
+    }
+
+    Array2d seq({max_len, 4});
+    std::vector<std::string> rna_residue_names {"A", "U", "G", "C"};
+    for (int i = 0; i < n; i++) {
+        auto r = rs[i];
+        auto it = std::find(rna_residue_names.begin(), rna_residue_names.end(), r->name);
+        int d = std::distance(rna_residue_names.begin(), it);
+        seq(i, d) = 1;
+    }
+
+    Array3d dist({max_len, max_len, nbins});
+    for (int i = 0; i < n; i++) {
+        auto & a1 = rs[i]->atom(atomname);
+        for (int j = i + 1; j < n; j++) {
+            auto & a2 = rs[j]->atom(atomname);
+            double d = jnc::geom::distance(a1, a2);
+            int bin = int(d/binsize);
+            if (bin >= nbins) bin = nbins-1;
+            dist(i, j, bin) = dist(j, i, bin) = 1;
+        }
+    }
+
+    return std::make_tuple(std::move(seq), std::move(dist), n);
+}
+
+Array4d pocket(const std::string &recfile, const std::string &ligfile, int nbins=64, double boxsize=32.0, bool includes_lig=true, int rotation_axis=-1, double angle=0) {
+    auto rec = jnc::pdb::read_pdb(recfile);
+    auto lig = jnc::mol2::read_mol2s(ligfile)[0];
+    auto rs = rec[0].presidues();
+
+    int lig_size = lig.atoms.size();
+
+    std::array<double, 3> c {0, 0, 0};
+    for (auto && atom : lig.atoms) {
+        c[0] += atom.x;
+        c[1] += atom.y; 
+        c[2] += atom.z;
+    }
+    for (int i = 0; i < 3; i++) c[i] /= double(lig_size);
+
+    if (rotation_axis!=-1) {
+        std::array<double, 3> end = c;
+        end[rotation_axis] += 1;
+        jnc::geom::RotateAlong rotate_along(c, end, angle);
+        for (auto && atom : lig.atoms) {
+            rotate_along(atom);
+        }
+        for (auto && r : rs) {
+            for (auto && atom : *r) {
+                rotate_along(atom);
+            }
+        }
+    }
+
+    double binsize = boxsize / nbins;
+    Array4d m({nbins, nbins, nbins, 9});
+    std::array<double, 3> ll { c[0]-boxsize/2, c[1]-boxsize/2, c[2]-boxsize/2 }; // lower limit
+
+    if (includes_lig) {
+        for (auto && atom : lig.atoms) {
+            int dx = int((atom.x-ll[0]) / binsize);
+            int dy = int((atom.y-ll[1]) / binsize);
+            int dz = int((atom.z-ll[2]) / binsize);
+            if (dx < nbins && dy < nbins && dz < nbins) {
+                int type = atom_type(atom.type);
+                m(dx, dy, dz, type) = 1;
+            }
+        }
+    }
+
+    for (auto && pr : rs) {
+        for (auto && atom : *pr) {
+            int dx = int((atom[0]-ll[0]) / binsize);
+            int dy = int((atom[1]-ll[1]) / binsize);
+            int dz = int((atom[2]-ll[2]) / binsize);
+            if (dx >= 0 && dx < nbins && dy >= 0 && dy < nbins && dz >= 0 && dz < nbins) {
+                int type = atom_type(atom.name);
+                m(dx, dy, dz, type) = 1;
+            }
+        }
+    }
+    return m;
+}
+
+std::string model_seq(const jnc::pdb::Model &m) {
+    auto rs = m.presidues();
+    int n = rs.size();
+    std::string seq(n, 'X');
+    for (int i = 0; i < n; i++) {
+        seq[i] = jnc::string_trim_c(rs[i]->name)[0];
+    }
+    return seq;
+}
+
+jnc::geom::SupPos<double> pdb_align(jnc::pdb::Pdb pdb1, jnc::pdb::Pdb pdb2) {
+    return jnc::geom::SupPos<double>{};
+}
+
+void align_apply(jnc::geom::SupPos<double>, jnc::pdb::Pdb pdb) {
+}
+
+char *obj2str(PyObject *o) {
+    return PyBytes_AS_STRING(PyUnicode_AsUTF8String(o));
+}
+
+using Residue = jnc::pdb::Residue;
+using Atom = jnc::pdb::Atom;
+
+Residue obj2residue(PyObject *o) {
+    Residue residue;
+    return std::move(residue);
+}
+
+PyObject *attr(PyObject *o, const char *key) {
+    return PyObject_GetAttrString(o, key);
+}
+
+Atom obj2atom(PyObject *o) {
+    Atom atom;
+    atom.name = obj2str(attr(o, "name"));
+    auto coord = attr(o, "coord");
+    atom[0] = PyFloat_AS_DOUBLE(PyList_GET_ITEM(coord, 0));
+    atom[1] = PyFloat_AS_DOUBLE(PyList_GET_ITEM(coord, 1));
+    atom[2] = PyFloat_AS_DOUBLE(PyList_GET_ITEM(coord, 2));
+    return std::move(atom);
+}
+
+PyObject *newatom(py::handle o) {
+    auto type = o.ptr()->ob_type;
+    auto n = type->tp_alloc(type, 0);
+    PyObject_SetAttrString(n, "name", PyUnicode_FromString("X"));
+    return n;
+}
+
+void suppos(py::list rs1, py::list rs2) {
+    for (py::handle res_handle : rs1) {
+        auto res = res_handle.ptr();
+        auto name = obj2str(attr(res, "name"));
+        std::cout << name << std::endl;
+        auto atoms = attr(res, "atoms");
+        int natoms = PyList_Size(atoms);
+        for (int i = 0; i < natoms; i++) {
+            auto atom = obj2atom(PyList_GET_ITEM(atoms, i));
+            std::cout << atom.name << ' ' << atom[0] << ' ' << atom[1] << ' ' << atom[2] << std::endl;
+        }
+    }
+}
+
+int print_list(const std::vector<int> &ls) {
+    for (auto && i : ls) {
+//        std::cout << std::string(py::str(i)) << ' ';
+        std::cout << i << ' ';
+    }
+    std::cout << std::endl;
+    return 0;
+}
+
+namespace py = pybind11;
+
+PYBIND11_MODULE(_jnpy, m) {
+//    py::module_ m_bio = m.def_submodule("_bio", "submodule: biology");
+
+//    m_bio.def("read_pdb", &jnc::pdb::read_pdb, R"pbdoc(
+//        Read a PDB file.
+//    )pbdoc");
+
+    m.def("newatom", &newatom, R"pbdoc(
+        New Atom.
+    )pbdoc");
+
+    m.def("suppos", &suppos, R"pbdoc(
+        Superposition.
+    )pbdoc");
+
+    py::class_<Array2d>(m, "Array2d", py::buffer_protocol())
+        .def_buffer([](Array2d &m) -> py::buffer_info {
+            return py::buffer_info(
+                m.data,                               /* Pointer to buffer */
+                sizeof(double),                          /* Size of one scalar */
+                py::format_descriptor<double>::format(), /* Python struct-style format descriptor */
+                2,                                      /* Number of dimensions */
+                { m.shape[0], m.shape[1] },                 /* Buffer dimensions */
+                { sizeof(double)*m.strides[0], sizeof(double)*m.strides[1] }
+                );
+        });
+
+    py::class_<Array3d>(m, "Array3d", py::buffer_protocol())
+        .def_buffer([](Array3d &m) -> py::buffer_info {
+            return py::buffer_info(
+                m.data,                               /* Pointer to buffer */
+                sizeof(double),                          /* Size of one scalar */
+                py::format_descriptor<double>::format(), /* Python struct-style format descriptor */
+                3,                                      /* Number of dimensions */
+                { m.shape[0], m.shape[1], m.shape[2] },                 /* Buffer dimensions */
+                { sizeof(double)*m.strides[0], sizeof(double)*m.strides[1], sizeof(double)*m.strides[2] }
+                );
+        });
+
+    py::class_<Array4d>(m, "Array4d", py::buffer_protocol())
+        .def_buffer([](Array4d &m) -> py::buffer_info {
+            return py::buffer_info(
+                m.data,                               /* Pointer to buffer */
+                sizeof(double),                          /* Size of one scalar */
+                py::format_descriptor<double>::format(), /* Python struct-style format descriptor */
+                4,                                      /* Number of dimensions */
+                { m.shape[0], m.shape[1], m.shape[2], m.shape[3] },                 /* Buffer dimensions */
+                { sizeof(double)*m.strides[0], sizeof(double)*m.strides[1], sizeof(double)*m.strides[2], sizeof(double)*m.strides[3] }
+                );
+        });
+
+    m.doc() = R"pbdoc(
+        Pybind11 example plugin
+        -----------------------
+
+        .. currentmodule:: jnpy
+
+        .. autosummary::
+           :toctree: _generate
+
+           add
+           subtract
+    )pbdoc";
+
+    m.def("print_list", &print_list, R"pbdoc(
+        Print a list
+    )pbdoc");
+
+    m.def("add", &add, R"pbdoc(
+        Add two numbers
+
+        Some other explanation about the add function.
+    )pbdoc");
+
+    m.def("r3sp_input", &r3sp_input, R"pbdoc(
+        Generate input for the R3SP network.
+
+        Some other explanation about the add function.
+    )pbdoc", py::arg("rnafile"), py::arg("atomname"), py::arg("nbins") = 64, py::arg("binsize") = 2.0, py::arg("max_len") = -1);
+
+    m.def("pocket", &pocket, R"pbdoc(
+        Extract pocket for a protein-ligand complex.
+
+        Some other explanation about the add function.
+    )pbdoc", py::arg("recfile"), py::arg("ligfile"), py::arg("nbins") = 64, py::arg("boxsize") = 32.0, py::arg("includes_lig") = true, py::arg("rotation_axis") = -1, py::arg("angle") = 0);
+
+    m.def("subtract", [](int i, int j) { return i - j; }, R"pbdoc(
+        Subtract two numbers
+
+        Some other explanation about the subtract function.
+    )pbdoc");
+
+#ifdef VERSION_INFO
+    m.attr("__version__") = MACRO_STRINGIFY(VERSION_INFO);
+#else
+    m.attr("__version__") = "dev";
+#endif
+}
