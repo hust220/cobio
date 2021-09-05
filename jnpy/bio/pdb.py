@@ -8,6 +8,7 @@ class Atom:
     self.name = name
     self.num = num
     self.coord = [x, y, z]
+    self.is_het = False
 
   def __getitem__(self, i):
     return self.coord[i]
@@ -124,6 +125,7 @@ class ParsedLine:
     self.x = float(line[30:38].strip())
     self.y = float(line[38:46].strip())
     self.z = float(line[46:54].strip())
+    self.is_het = line.startswith('HETATM')
 
 class PdbParser:
   def __init__(self, file_name):
@@ -143,6 +145,7 @@ class PdbParser:
           elif line.res_num != self.oline.res_num or line.res_name != self.oline.res_name:
             self.add_residue()
         self.atoms.append(Atom(line.atom_name, line.atom_num, line.x, line.y, line.z))
+        self.atoms[-1].is_het = line.is_het
         self.oline = line
         i += 1
       elif line[0:5] == "MODEL":

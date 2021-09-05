@@ -6,6 +6,9 @@
 #include <stdio.h>
 #include <array>
 
+//aa1 = ['A',   'R',   'N',   'D',   'C',   'Q',   'E',   'G',   'H',   'I',   'L',   'K',   'M',   'F',   'P',   'S',   'T',   'W',   'Y',   'V',   'O',   'U',   'B',   'Z',   'X',   'J',   '*']
+//aa2 = ['ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE', 'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL', 'PYL', 'SEC', 'ASX', 'GLX', 'XAA', 'XLE', 'TERM']
+
 struct MatViewer {
     PyObject *obj;
     MatViewer(PyObject *o) : obj(o) {}
@@ -122,7 +125,7 @@ struct AtomTypeIdentifier {
     }
 };
 
-std::vector<int> map_atoms(PyObject *atoms1, PyObject *atoms2) {
+std::vector<int> map_atoms_(PyObject *atoms1, PyObject *atoms2) {
     int n1 = PyList_Size(atoms1);
     int n2 = PyList_Size(atoms2);
 
@@ -218,14 +221,37 @@ jnc::geom::SupPos<double> pdb_align(jnc::pdb::Pdb pdb1, jnc::pdb::Pdb pdb2) {
 void align_apply(jnc::geom::SupPos<double>, jnc::pdb::Pdb pdb) {
 }
 
-static PyObject *newatom(PyObject *self, PyObject *args) {
-    PyObject *atom;
-    PARSE_TUPLE(args, "O", &atom);
-    auto type = atom->ob_type;
-    auto n = type->tp_alloc(type, 0);
-    PyObject_SetAttrString(n, "name", PyUnicode_FromString("X"));
-    return n;
-}
+//static PyObject *copy_atom(PyObject *atom) {
+//    auto type = atom->ob_type;
+//    auto n = type->tp_alloc(type, 0);
+//
+//    auto && name = attr(atom, "name");
+//    auto && c = attr(atom, "coord");
+//
+//    PyObject_SetAttrString(n, "name", PyUnicode_FromString(name));
+//    PyObject *coord = PyList_New(3);
+//    for (int i = 0; i < 3; i++) {
+//        PyList_SET_ITEM(coord, i, PyLong_FromLong(at(c, i)));
+//    }
+//    PyObject_SetAttr(n, "coord", coord);
+//
+//    return n;
+//}
+
+//static PyObject *copy_atoms(PyObject *atoms) {
+//    int sz = PyList_Size(atoms);
+//    PyObject *as = PyList_New(sz);
+//    for (int i = 0; i < sz; i++) {
+//        PyList_SET_ITEM(as, i, copy_atom(PyList_GET_ITEM(atoms, i)));
+//    }
+//    return as;
+//}
+
+//static PyObject *newatom(PyObject *self, PyObject *args) {
+//    PyObject *atom;
+//    PARSE_TUPLE(args, "O", &atom);
+//    return copy_atom(atom);
+//}
 
 int res_natoms(PyObject *res) {
     return PyList_Size(attr(res, "atoms"));
@@ -334,11 +360,18 @@ static jnc::geom::SupPos<double> _suppos(PyObject *rs1, PyObject *rs2, bool use_
     return jnc::geom::SupPos<double>(crd1, crd2);
 }
 
-static PyObject *test_map_atoms(PyObject *self, PyObject *args) {
+static PyObject *map_atoms(PyObject *self, PyObject *args) {
     PyObject *atoms1, *atoms2;
     PARSE_TUPLE(args, "OO", &atoms1, &atoms2);
-    map_atoms(atoms1, atoms2);
-    return Py_None;
+    auto && v = map_atoms_(atoms1, atoms2);
+    std::size_t n = v.size();
+
+    PyObject *m = PyList_New(n);
+    for (int i = 0; i < n; i++) {
+        PyList_SET_ITEM(m, i, PyLong_FromLong(v[i]));
+    }
+
+    return m;
 }
 
 static PyObject *rmsd(PyObject *self, PyObject *args) {
@@ -364,7 +397,7 @@ static PyObject *rmsd(PyObject *self, PyObject *args) {
             // Map atoms1 to atoms2
             std::vector<int> m(natoms);
             std::iota(m.begin(), m.end(), 0);
-            if (use_common_atoms) m = map_atoms(atoms1, atoms2);
+            if (use_common_atoms) m = map_atoms_(atoms1, atoms2);
 
             for (int j = 0; j < natoms; j++) {
                 auto atom1 = PyList_GET_ITEM(atoms1, j);
@@ -438,14 +471,59 @@ static PyObject *sp_apply(PyObject *self, PyObject *args) {
     return Py_None;
 }
 
+//class Mat3 {
+//public:
+//    double *data;
+//    std::array<int, 3> shape;
+//    std::array<int, 3> strides;
+//
+//    const Mat3 &fft(Mat3 &&mat) const {
+//        fftw_plan plan = fftw_plan_dft_3d(shape[0], shape[1], shape[2], reinterpret_cast<fftw_complex*>(data), reinterpret_cast<fftw_complex*>(mat.data), FFTW_FORWARD, FFTW_ESTIMATE);
+//        fftw_execute(plan); /* repeat as needed */
+//        fftw_destroy_plan(plan);
+//        return *this;
+//    }
+//
+//    const Mat3 &ifft(Mat3 &&mat) const {
+//        fftw_plan plan = fftw_plan_dft_3d(shape[0], shape[1], shape[2], reinterpret_cast<fftw_complex*>(data), reinterpret_cast<fftw_complex*>(mat.data), FFTW_BACKWARD, FFTW_ESTIMATE);
+//        fftw_execute(plan); /* repeat as needed */
+//        fftw_destroy_plan(plan);
+//        return *this;
+//    }
+//};
+
+//static PyObject *amorphize(PyObject *atoms, int n) {
+//    Mat3 radius_grid, radius_fgrid, grid1, fgrid1, grid2, fgrid2;
+//
+//    PyObject *ls = PyList_New(0);
+//    for (int i = 0; i < n; i++) {
+//        auto as = copy_atoms(atoms);
+//        set_grid(grid2, atoms);
+//        score = fit(grid1, grid2);
+//        update_grid(grid2, as);
+//        PyList_Append(ls, as);
+//    }
+//    return ls
+//}
+//
+//static PyObject *amorphize(PyObject *self, PyObject *args) {
+//    PyObject *atoms;
+//    int n;
+//    PARSE_TUPLE(args, "Oi", &atoms, &n);
+//    return amorphize_(atoms, n);
+//}
+
 static PyMethodDef jnpy_methods[] = {
     {"add", add, METH_VARARGS, "Add"},
-    {"newatom", newatom, METH_VARARGS, "New Atom"},
+//    {"newatom", newatom, METH_VARARGS, "New Atom"},
     {"suppos", suppos, METH_VARARGS, "Superposion"},
     {"sp_apply", sp_apply, METH_VARARGS, "Apply Superposion"},
     {"align", align, METH_VARARGS, "Apply Superposion"},
     {"rmsd", rmsd, METH_VARARGS, "RMSD"},
-    {"test_map_atoms", test_map_atoms, METH_VARARGS, "Test Map Atoms"},
+    {"map_atoms", map_atoms, METH_VARARGS, "Map Atoms"},
+//    {"Amorphize", amorphize, METH_VARARGS, "Amorphize"},
+//    {"aa321", aa321, METH_VARARGS, "aa321"},
+//    {"aa123", aa123, METH_VARARGS, "aa123"},
     {NULL, NULL, 0, NULL} // sentinel
 };
 
