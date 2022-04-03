@@ -67,8 +67,15 @@ T lexical_cast(U && u) {
 #define JN_STR(a) jnc::lexical_cast<Str>(a)
 
 template<typename T>
-void hash_combine(std::size_t& seed, const T &value) {
+void hash_combine_(std::size_t& seed, const T &value) {
     seed ^= (std::size_t)value + 0x9e3779b9 + (seed<<6) + (seed>>2);
+}
+
+template <class T>
+inline void hash_combine(std::size_t& seed, const T& v)
+{
+    std::hash<T> hasher;
+    hash_combine_(seed, hasher(v));
 }
 
 template <class It>
@@ -76,7 +83,7 @@ std::size_t hash_range(It first, It last) {
     std::size_t seed = 0;
     for(; first != last; ++first)
     {
-        hash_combine(seed, *first);
+        hash_combine_(seed, *first);
     }
     return seed;
 }

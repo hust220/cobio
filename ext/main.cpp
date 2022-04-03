@@ -1,4 +1,5 @@
 #define PY_SSIZE_T_CLEAN
+
 #include "Python.h"
 #include "jnc.h"
 #include "align.h"
@@ -25,8 +26,25 @@ void assign(PyObject *vec, int i, double v) {
     PyList_SET_ITEM(vec, i, PyFloat_FromDouble(v));
 }
 
-char *obj2str(PyObject *o) {
+char *o2s(PyObject *o) {
     return PyBytes_AS_STRING(PyUnicode_AsUTF8String(o));
+}
+
+int o2i(PyObject *o) {
+    return int(PyLong_AsLong(PyNumber_Long(o)));
+}
+
+double o2d(PyObject *o) {
+    return PyFloat_AS_DOUBLE(PyNumber_Float(o));
+}
+
+template<typename Array_>
+PyObject *a2o(const Array_ &c, int size) {
+    PyObject *obj = PyList_New(size);
+    for (int i = 0; i < size; i++) {
+        PyList_SET_ITEM(obj, i, PyFloat_FromDouble(c[i]));
+    }
+    return obj;
 }
 
 using Residue = jnc::pdb::Residue;
@@ -43,7 +61,7 @@ PyObject *attr(PyObject *o, const char *key) {
 
 Atom obj2atom(PyObject *o) {
     Atom atom;
-    atom.name = obj2str(attr(o, "name"));
+    atom.name = o2s(attr(o, "name"));
     auto coord = attr(o, "coord");
     atom[0] = PyFloat_AS_DOUBLE(PyList_GET_ITEM(coord, 0));
     atom[1] = PyFloat_AS_DOUBLE(PyList_GET_ITEM(coord, 1));
@@ -135,12 +153,12 @@ std::vector<int> map_atoms_(PyObject *atoms1, PyObject *atoms2) {
     AtomTypeIdentifier ident;
     for (int i = 0; i < n1; i++) {
         auto atom = PyList_GET_ITEM(atoms1, i);
-        auto name = obj2str(attr(atom, "name"));
+        auto name = o2s(attr(atom, "name"));
         nodes1[i] = std::size_t(ident(name));
     }
     for (int i = 0; i < n2; i++) {
         auto atom = PyList_GET_ITEM(atoms2, i);
-        auto name = obj2str(attr(atom, "name"));
+        auto name = o2s(attr(atom, "name"));
         nodes2[i] = std::size_t(ident(name));
     }
     auto edges1 = atoms_edges(atoms1);
@@ -268,9 +286,9 @@ static PyObject *align(PyObject *self, PyObject *args) {
     Alignment alignment;
     int score;
     std::string seq1_aligned, seq2_aligned;
-//    std::tie(score, seq1_aligned, seq2_aligned) = alignment(obj2str(seq1), obj2str(seq2));
+//    std::tie(score, seq1_aligned, seq2_aligned) = alignment(o2s(seq1), o2s(seq2));
     std::tie(score, seq1_aligned, seq2_aligned) = alignment(seq1, seq2);
-    return Py_BuildValue("(O,O,O)", str2obj(seq1_aligned.c_str()), str2obj(seq2_aligned.c_str()), PyLong_FromLong(score));
+    return Py_BuildValue("(N,N,N)", str2obj(seq1_aligned.c_str()), str2obj(seq2_aligned.c_str()), PyLong_FromLong(score));
 }
 
 std::map<std::string, std::array<double, 3>> atom_crd_map(PyObject *atoms) {
@@ -278,7 +296,7 @@ std::map<std::string, std::array<double, 3>> atom_crd_map(PyObject *atoms) {
     std::map<std::string, std::array<double, 3>> rc;
     for (int i = 0; i < natoms; i++) {
         auto atom = PyList_GET_ITEM(atoms, i);
-        auto name = obj2str(attr(atom, "name"));
+        auto name = o2s(attr(atom, "name"));
         auto coord = attr(atom, "coord");
         std::array<double, 3> crd;
         for (int j = 0; j < 3; j++) {
@@ -367,8 +385,8 @@ static PyObject *map_atoms(PyObject *self, PyObject *args) {
     std::size_t n = v.size();
 
     PyObject *m = PyList_New(n);
-    for (int i = 0; i < n; i++) {
-        PyList_SET_ITEM(m, i, PyLong_FromLong(v[i]));
+    for (std::size_t i = 0; i < n; i++) {
+        PyList_SetItem(m, i, PyLong_FromLong(v[i]));
     }
 
     return m;
@@ -424,16 +442,17 @@ static PyObject *suppos(PyObject *self, PyObject *args) {
     PyObject *c1 = PyList_New(3);
     PyObject *c2 = PyList_New(3);
     for (int i = 0; i < 3; i++) {
-        PyList_SET_ITEM(c1, i, PyFloat_FromDouble(sp.c1(i)));
-        PyList_SET_ITEM(c2, i, PyFloat_FromDouble(sp.c2(i)));
+        PyList_SetItem(c1, i, PyFloat_FromDouble(sp.c1(i)));
+        PyList_SetItem(c2, i, PyFloat_FromDouble(sp.c2(i)));
         PyObject *row = PyList_New(3);
         for (int j = 0; j < 3; j++) {
-            PyList_SET_ITEM(row, j, PyFloat_FromDouble(sp.rot(i,j)));
+            PyList_SetItem(row, j, PyFloat_FromDouble(sp.rot(i,j)));
         }
-        PyList_SET_ITEM(rot, i, row);
+        PyList_SetItem(rot, i, row);
     }
-    return Py_BuildValue("((O,O,O),d)", rot, c1, c2, sp.rmsd);
+    return Py_BuildValue("((N,N,N),d)", rot, c1, c2, sp.rmsd);
 }
+
 
 template<typename _Mat>
 void rotate(PyObject *o, const _Mat &mat) {
@@ -470,6 +489,187 @@ static PyObject *sp_apply(PyObject *self, PyObject *args) {
     }
     return Py_None;
 }
+
+//////////////////////////////////////////////////////////////////
+// Pocket
+
+struct PocketAtom {
+    std::string name;
+    std::array<double, 3> coord;
+    int isLigand;
+};
+
+struct Pocket {
+    int id;
+    std::array<double, 3> center;
+    double box;
+    std::vector<PocketAtom> atoms;
+};
+
+template<typename Atom1_, typename Atom2_>
+bool atom_in_box(Atom1_ &&atom1, Atom2_ &&atom2, double box) {
+    double x = atom1[0] - atom2[0];
+    double y = atom1[1] - atom2[1];
+    double z = atom1[2] - atom2[2];
+    return std::abs(x) < box && std::abs(y) < box && std::abs(z) < box;
+}
+
+template<typename Residue_>
+std::array<double, 3> residue_center(const Residue_ &residue) {
+    std::array<double, 3> c {0, 0, 0};
+    int iatom = 0;
+    for (auto && atom : residue) {
+        for (int i = 0; i < 3; i++) {
+            c[i] += atom[i];
+        }
+        iatom += 1;
+    }
+    for (int i = 0; i < 3; i++) {
+        c[i] /= iatom;
+    }
+    return c;
+}
+
+typedef struct {
+    PyObject_HEAD
+    Pocket *pocket = NULL;
+} PocketObject;
+
+static PyObject *Pocket_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
+    PocketObject *self;
+    self = (PocketObject *) type->tp_alloc(type, 0);
+    if (self != NULL) {
+        self->pocket = NULL;
+    }
+    return (PyObject *) self;
+}
+
+static int Pocket_init(PocketObject *self, PyObject *args, PyObject *kwargs) {
+    const char *receptor_filename;
+    const char *ligand_filename;
+    if (!PyArg_ParseTuple(args, "ss", &receptor_filename, &ligand_filename)) {
+        Err("Parameter type error!");
+        return 1;
+    }
+
+    double box = o2d(PyDict_GetItemString(kwargs, "box"));
+
+    auto &&rec = jnc::pdb::read_pdb(receptor_filename);
+    auto &&lig = jnc::mol2::read_mol2s(ligand_filename)[0];
+    auto &&center = residue_center(lig.atoms);
+
+    std::list<Atom> atoms;
+    for (auto && chain : rec[0]) {
+        for (auto && res : chain) {
+            for (auto && atom : res) {
+                if (atom_in_box(atom, center, box)) {
+                    atoms.push_back(atom);
+                }
+            }
+        }
+    }
+
+    Pocket *p = new Pocket;
+
+    // PyObject *atoms_object = PyList_New(natoms);
+    // int iatom = 0;
+    // for (auto && atom : atoms) {
+    //     auto coord = a2o(atom, 3);
+    //     PyObject *atom_object = Py_BuildValue("{s:s,s:N,s:i}", "name", atom.name.c_str(), "coord", coord, "isLigand", 0);  
+    //     PyList_SET_ITEM(atoms_object, iatom, atom_object);
+    //     iatom++;
+    // }
+
+    std::size_t id = 0;
+    jnc::hash_combine(id, std::string(receptor_filename));
+    jnc::hash_combine(id, std::string(ligand_filename));
+    p->id = id;
+
+    p->center = std::move(center);
+
+    p->box = box;
+
+    int natoms = atoms.size();
+    p->atoms.resize(natoms);
+    int iatom = 0;
+    for (auto && atom : atoms) {
+        PocketAtom pa;
+        for (int i = 0; i < 3; i++) pa.coord[i] = atom[i];
+        pa.isLigand = 0;
+        pa.name = atom.name;
+        iatom++;
+    }
+
+    self->pocket = p;
+    return 0;
+    // return Py_BuildValue("{s:i,s:N,s:d,s:N}", "id", int(id), "center", a2o(center, 3), "box", box, "atoms", atoms_object);//     return 0;
+}
+
+static void Pocket_dealloc(PocketObject *self) {
+    std::cout << "dealloc: " << self->pocket->id << std::endl;
+    if (self->pocket != NULL) {
+        delete self->pocket;
+    }
+    Py_TYPE(self)->tp_free((PyObject *) self);
+}
+
+static PyTypeObject PocketType = []{
+    PyTypeObject tmp{PyVarObject_HEAD_INIT(NULL, 0)};
+    tmp.tp_name = "Pocket",
+    tmp.tp_basicsize = sizeof(PocketObject),
+    tmp.tp_itemsize = 0,
+    tmp.tp_dealloc = (destructor) Pocket_dealloc,
+    tmp.tp_flags = Py_TPFLAGS_DEFAULT;
+    tmp.tp_doc = "Pocket Object";
+    tmp.tp_init = (initproc) Pocket_init;
+    tmp.tp_new = Pocket_new;
+    return tmp;
+}();
+
+static PyObject *read_pocket(PyObject *self, PyObject *args, PyObject *kwargs) {
+    const char *receptor_filename;
+    const char *ligand_filename;
+    PARSE_TUPLE(args, "ss", &receptor_filename, &ligand_filename);
+
+    double box = o2d(PyDict_GetItemString(kwargs, "box"));
+
+    auto &&rec = jnc::pdb::read_pdb(receptor_filename);
+    auto &&lig = jnc::mol2::read_mol2s(ligand_filename)[0];
+    auto &&center = residue_center(lig.atoms);
+
+    std::list<Atom> atoms;
+    for (auto && chain : rec[0]) {
+        for (auto && res : chain) {
+            for (auto && atom : res) {
+                if (atom_in_box(atom, center, box)) {
+                    atoms.push_back(atom);
+                }
+            }
+        }
+    }
+
+    int natoms = atoms.size();
+    PyObject *atoms_object = PyList_New(natoms);
+    int iatom = 0;
+    for (auto && atom : atoms) {
+        auto coord = a2o(atom, 3);
+        PyObject *atom_object = Py_BuildValue("{s:s,s:N,s:i}", "name", atom.name.c_str(), "coord", coord, "isLigand", 0);  
+        PyList_SET_ITEM(atoms_object, iatom, atom_object);
+        iatom++;
+    }
+
+    std::size_t id = 0;
+    jnc::hash_combine(id, std::string(receptor_filename));
+    jnc::hash_combine(id, std::string(ligand_filename));
+    return Py_BuildValue("{s:i,s:N,s:d,s:N}", "id", int(id), "center", a2o(center, 3), "box", box, "atoms", atoms_object);
+}
+
+// static PyObject *pocket_find_children(PyObject *self, PyObject *args, PyObject *kwargs) {
+//     PyObject *pocket;
+//     PARSE_TUPLE(args, "O", &pocket);
+// }
+
+
 
 //class Mat3 {
 //public:
@@ -521,22 +721,81 @@ static PyMethodDef jnpy_methods[] = {
     {"align", align, METH_VARARGS, "Apply Superposion"},
     {"rmsd", rmsd, METH_VARARGS, "RMSD"},
     {"map_atoms", map_atoms, METH_VARARGS, "Map Atoms"},
+    {"read_pocket", (PyCFunction) read_pocket, METH_VARARGS | METH_KEYWORDS, "Read Pocket"},
 //    {"Amorphize", amorphize, METH_VARARGS, "Amorphize"},
 //    {"aa321", aa321, METH_VARARGS, "aa321"},
 //    {"aa123", aa123, METH_VARARGS, "aa123"},
     {NULL, NULL, 0, NULL} // sentinel
 };
 
-static struct PyModuleDef jnpy_module = {
+// static struct PyModuleDef jnpy_module = {
+//     PyModuleDef_HEAD_INIT,
+//     "_jnpy",   /* name of module */
+//     NULL, /* module documentation, may be NULL */
+//     -1,       /* size of per-interpreter state of the module,
+//                  or -1 if the module keeps state in global variables. */
+//     jnpy_methods
+// };
+
+static PyModuleDef jnpy_module = {
     PyModuleDef_HEAD_INIT,
-    "_jnpy",   /* name of module */
-    NULL, /* module documentation, may be NULL */
-    -1,       /* size of per-interpreter state of the module,
-                 or -1 if the module keeps state in global variables. */
-    jnpy_methods
+    .m_name = "_jnpy",
+    .m_doc = "Jian's Python Library",
+    .m_size = -1,
+    .m_methods = jnpy_methods,
 };
 
 PyMODINIT_FUNC PyInit__jnpy(void) {
-    return PyModule_Create(&jnpy_module);
+    // return PyModule_Create(&jnpy_module);
+
+    PyObject *m;
+
+    if (PyType_Ready(&PocketType) < 0)
+        return NULL;
+
+    m = PyModule_Create(&jnpy_module);
+    if (m == NULL)
+        return NULL;
+
+    Py_INCREF(&PocketType);
+    if (PyModule_AddObject(m, "Pocket", (PyObject *) &PocketType) < 0) {
+        Py_DECREF(&PocketType);
+        Py_DECREF(m);
+        return NULL;
+    }
+
+    return m;
 }
+
+/*
+PyObject *function = PyObject_GetAttrString(add_module, "add");
+PyObject *args = PyTuple_New(0);
+PyObject *kwargs = Py_BuildValue("{s:i}", "b", 5)
+result = PyObject_Call(function, args, kwargs);
+
+Py_DECREF(kwargs);
+Py_DECREF(args);
+Py_DECREF(function);
+*/
+
+/*
+PyObject *module = PyImport_AddModule( "gto" );
+PyObject *moduleDict = PyModule_GetDict( module );
+
+PyObject *classObj = PyDict_GetItemString( moduleDict, "ObjectInfo" );
+
+PyObject *args = Py_BuildValue( "()" ); // Empty tuple
+PyObject *objInfo = PyInstance_New( classObj, args, NULL );
+
+PyObject_SetAttr( objInfo, 
+PyString_FromString( "name" ),
+PyString_FromString( 
+reader->stringFromId( oi.name ).c_str() ) );
+*/
+
+/*
+ * Build a dictionary
+ */
+// Py_BuildValue("{s:i,s:O}", "abc", a_c_int, "def", a_python_list);  
+
 
