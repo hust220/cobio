@@ -571,15 +571,6 @@ static int Pocket_init(PocketObject *self, PyObject *args, PyObject *kwargs) {
 
     Pocket *p = new Pocket;
 
-    // PyObject *atoms_object = PyList_New(natoms);
-    // int iatom = 0;
-    // for (auto && atom : atoms) {
-    //     auto coord = a2o(atom, 3);
-    //     PyObject *atom_object = Py_BuildValue("{s:s,s:N,s:i}", "name", atom.name.c_str(), "coord", coord, "isLigand", 0);  
-    //     PyList_SET_ITEM(atoms_object, iatom, atom_object);
-    //     iatom++;
-    // }
-
     std::size_t id = 0;
     jnc::hash_combine(id, std::string(receptor_filename));
     jnc::hash_combine(id, std::string(ligand_filename));
@@ -606,70 +597,63 @@ static int Pocket_init(PocketObject *self, PyObject *args, PyObject *kwargs) {
 }
 
 static void Pocket_dealloc(PocketObject *self) {
-    std::cout << "dealloc: " << self->pocket->id << std::endl;
+    // std::cout << "dealloc: " << self->pocket->id << std::endl;
     if (self->pocket != NULL) {
         delete self->pocket;
     }
     Py_TYPE(self)->tp_free((PyObject *) self);
 }
 
-static PyTypeObject PocketType = []{
-    PyTypeObject tmp{PyVarObject_HEAD_INIT(NULL, 0)};
-    tmp.tp_name = "Pocket",
-    tmp.tp_basicsize = sizeof(PocketObject),
-    tmp.tp_itemsize = 0,
-    tmp.tp_dealloc = (destructor) Pocket_dealloc,
-    tmp.tp_flags = Py_TPFLAGS_DEFAULT;
-    tmp.tp_doc = "Pocket Object";
-    tmp.tp_init = (initproc) Pocket_init;
-    tmp.tp_new = Pocket_new;
-    return tmp;
-}();
+std::vector<std::array<double, 3>> fibonacci_sphere(double radius = 1, int samples=1000) {
+    std::vector<std::array<double, 3>> points(samples);
+    double phi = jnc::pi * (3. - std::sqrt(5.));  // golden angle in radians
 
-static PyObject *read_pocket(PyObject *self, PyObject *args, PyObject *kwargs) {
-    const char *receptor_filename;
-    const char *ligand_filename;
-    PARSE_TUPLE(args, "ss", &receptor_filename, &ligand_filename);
+    for (int i = 0; i < samples; i++) {
+        double y = (1 - (i / float(samples - 1)) * 2) * radius;  // y goes from 1 to -1
+        double r = std::sqrt(radius * radius - y * y);  // radius at y
 
-    double box = o2d(PyDict_GetItemString(kwargs, "box"));
+        double theta = phi * i;  // golden angle increment
 
-    auto &&rec = jnc::pdb::read_pdb(receptor_filename);
-    auto &&lig = jnc::mol2::read_mol2s(ligand_filename)[0];
-    auto &&center = residue_center(lig.atoms);
+        double x = std::cos(theta) * r;
+        double z = std::sin(theta) * r;
 
-    std::list<Atom> atoms;
-    for (auto && chain : rec[0]) {
-        for (auto && res : chain) {
-            for (auto && atom : res) {
-                if (atom_in_box(atom, center, box)) {
-                    atoms.push_back(atom);
-                }
-            }
-        }
+        points[i][0] = x;
+        points[i][1] = y;
+        points[i][2] = z;
     }
 
-    int natoms = atoms.size();
-    PyObject *atoms_object = PyList_New(natoms);
-    int iatom = 0;
-    for (auto && atom : atoms) {
-        auto coord = a2o(atom, 3);
-        PyObject *atom_object = Py_BuildValue("{s:s,s:N,s:i}", "name", atom.name.c_str(), "coord", coord, "isLigand", 0);  
-        PyList_SET_ITEM(atoms_object, iatom, atom_object);
-        iatom++;
-    }
-
-    std::size_t id = 0;
-    jnc::hash_combine(id, std::string(receptor_filename));
-    jnc::hash_combine(id, std::string(ligand_filename));
-    return Py_BuildValue("{s:i,s:N,s:d,s:N}", "id", int(id), "center", a2o(center, 3), "box", box, "atoms", atoms_object);
+    return points;
 }
 
-// static PyObject *pocket_find_children(PyObject *self, PyObject *args, PyObject *kwargs) {
-//     PyObject *pocket;
-//     PARSE_TUPLE(args, "O", &pocket);
-// }
+static PyObject *Pocket_find_children(PocketObject *self, PyObject *args, PyObject *kwargs) {
+    const char *receptor_filename;
+    const char *ligand_filename;
+    if (!PyArg_ParseTuple(args, "ss", &receptor_filename, &ligand_filename)) {
+        Err("Parameter type error!");
+        return NULL;
+    }
+    double box = o2d(PyDict_GetItemString(kwargs, "box"));
+    return PyUnicode_FromFormat("%S %S", self->first, self->last);
+}
 
+static PyMethodDef Pocket_methods[] = {
+    {"find_children", (PyCFunction) Pocket_find_children, METH_NOARGS, "find children"},
+    {NULL}  /* Sentinel */
+};
 
+static PyTypeObject PocketType = []{
+    PyTypeObject obj{PyVarObject_HEAD_INIT(NULL, 0)};
+    obj.tp_name = "Pocket",
+    obj.tp_basicsize = sizeof(PocketObject),
+    obj.tp_itemsize = 0,
+    obj.tp_dealloc = (destructor) Pocket_dealloc,
+    obj.tp_flags = Py_TPFLAGS_DEFAULT;
+    obj.tp_doc = "Pocket Object";
+    obj.tp_init = (initproc) Pocket_init;
+    obj.tp_new = Pocket_new;
+    obj.tp_methods = Pocket_methods;
+    return obj;
+}();
 
 //class Mat3 {
 //public:
@@ -721,7 +705,6 @@ static PyMethodDef jnpy_methods[] = {
     {"align", align, METH_VARARGS, "Apply Superposion"},
     {"rmsd", rmsd, METH_VARARGS, "RMSD"},
     {"map_atoms", map_atoms, METH_VARARGS, "Map Atoms"},
-    {"read_pocket", (PyCFunction) read_pocket, METH_VARARGS | METH_KEYWORDS, "Read Pocket"},
 //    {"Amorphize", amorphize, METH_VARARGS, "Amorphize"},
 //    {"aa321", aa321, METH_VARARGS, "aa321"},
 //    {"aa123", aa123, METH_VARARGS, "aa123"},

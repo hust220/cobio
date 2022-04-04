@@ -29,6 +29,8 @@
 
 namespace jnc {
 
+constexpr double pi = 3.14159265358979323846;
+
 template<typename T> using Vec = std::vector<T>;
 using Str = std::string;
 

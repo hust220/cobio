@@ -42,5 +42,6 @@
         "algorithm": "cpp",
         "memory": "cpp",
         "cinttypes": "cpp"
-    }
+    },
+    "cmake.configureOnOpen": true
 }
