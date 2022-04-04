@@ -8,7 +8,7 @@ from distutils.core import setup, Extension
 
 import sys
 
-__version__ = "0.0.10"
+__version__ = "0.1.0"
 
 # The main interface is through Pybind11Extension.
 # * You can add cxx_std=11/14/17, and then build_ext can be removed.

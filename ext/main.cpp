@@ -78,7 +78,6 @@ Atom obj2atom(PyObject *o) {
     } \
 
 static PyObject *add(PyObject *i, PyObject *j) {
-    std::cout << "hi" << std::endl;
     return PyLong_FromLong(0);
 }
 
@@ -493,25 +492,72 @@ static PyObject *sp_apply(PyObject *self, PyObject *args) {
 //////////////////////////////////////////////////////////////////
 // Pocket
 
-struct PocketAtom {
+struct PocketReceptorAtom {
     std::string name;
     std::array<double, 3> coord;
+    std::array<int, 3> index; // index in the grid
     int isLigand;
 };
 
-struct Pocket {
-    int id;
+struct PocketLigandAtom {
+    std::array<int, 3> index;
+    uint element = 0; // 0: None, 1: C, 2: 
+    PocketLigandAtom *prev = NULL;
+};
+
+// static std::string pocket_ligand_atom_element(uint element) {
+//     const static std::vector<std::string> m = {"X", "C", "N", "O", "P", "S"};
+//     if (element < 0 || element >= m.size()) {
+//         Err("Atom element not supported!");
+//         return "";
+//     } else {
+//         return m[element];
+//     }
+// };
+
+struct PocketGrid {
     std::array<double, 3> center;
     double box;
-    std::vector<PocketAtom> atoms;
+    double bin;
+    int size;
+};
+
+template<typename Grid_, typename Coord_>
+std::array<int, 3> grid_c2i(const Grid_ &grid, const Coord_ &c) {
+    std::array<int, 3> ind;
+    for (int i = 0; i < 3; i++) ind[i] = int((c[i] - (grid.center[i] - grid.box / 2.0)) / grid.bin);
+    return ind;
+}
+
+template<typename Grid_, typename Ind_>
+std::array<double, 3> grid_i2c(const Grid_ &grid, const Ind_ &ind) {
+    std::array<double, 3> c;
+    for (int i = 0; i < 3; i++) c[i] = ind[i] * grid.bin + (grid.center[i] - grid.box / 2.0);
+    return c;
+}
+
+struct PocketReceptor {
+    std::vector<PocketReceptorAtom> atoms;
+};
+
+struct PocketLigand {
+    PocketLigandAtom lastAtom; // Only the last atom is owned by this ligand.
+};
+
+struct Pocket {
+    std::size_t id = 0;
+    PocketGrid *grid = NULL; // shared by all the nodes
+    PocketReceptor *receptor = NULL; // shared by all the nodes
+    PocketLigand *ligand = NULL; // owned by the current node
 };
 
 template<typename Atom1_, typename Atom2_>
 bool atom_in_box(Atom1_ &&atom1, Atom2_ &&atom2, double box) {
+    double halfBox = box / 2.0;
     double x = atom1[0] - atom2[0];
     double y = atom1[1] - atom2[1];
     double z = atom1[2] - atom2[2];
-    return std::abs(x) < box && std::abs(y) < box && std::abs(z) < box;
+    return std::abs(x) < halfBox && std::abs(y) < halfBox && std::abs(z) < halfBox;
 }
 
 template<typename Residue_>
@@ -532,32 +578,54 @@ std::array<double, 3> residue_center(const Residue_ &residue) {
 
 typedef struct {
     PyObject_HEAD
-    Pocket *pocket = NULL;
+    Pocket *pocket;
 } PocketObject;
 
 static PyObject *Pocket_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
     PocketObject *self;
     self = (PocketObject *) type->tp_alloc(type, 0);
     if (self != NULL) {
-        self->pocket = NULL;
+        self->pocket = new Pocket;
+        self->pocket->receptor = NULL;
+        self->pocket->receptor = NULL;
+        self->pocket->ligand = NULL;
+        self->pocket->id = 0;
     }
     return (PyObject *) self;
 }
 
 static int Pocket_init(PocketObject *self, PyObject *args, PyObject *kwargs) {
-    const char *receptor_filename;
-    const char *ligand_filename;
-    if (!PyArg_ParseTuple(args, "ss", &receptor_filename, &ligand_filename)) {
+    const char *receptor_filename = NULL;
+    const char *ligand_filename = NULL;
+    if (!PyArg_ParseTuple(args, "|ss", &receptor_filename, &ligand_filename)) {
         Err("Parameter type error!");
-        return 1;
+        return 0;
     }
 
-    double box = o2d(PyDict_GetItemString(kwargs, "box"));
+    if (receptor_filename == NULL || ligand_filename == NULL) {
+        return 0;
+    }
+
+    // grid
+    PyObject *box_object = PyDict_GetItemString(kwargs, "box");
+    double box = (box_object == NULL) ? 10.0 : o2d(box_object);
+    
+    PyObject *bin_object = PyDict_GetItemString(kwargs, "bin");
+    double bin = (bin_object == NULL) ? 0.2 : o2d(bin_object);
 
     auto &&rec = jnc::pdb::read_pdb(receptor_filename);
     auto &&lig = jnc::mol2::read_mol2s(ligand_filename)[0];
     auto &&center = residue_center(lig.atoms);
 
+    PocketGrid *grid = new PocketGrid;
+    grid->bin = bin;
+    grid->box = box;
+    grid->center = center;
+    grid->size = (int) std::ceil(box / bin);
+
+    self->pocket->grid = grid;
+
+    // receptor
     std::list<Atom> atoms;
     for (auto && chain : rec[0]) {
         for (auto && res : chain) {
@@ -569,42 +637,50 @@ static int Pocket_init(PocketObject *self, PyObject *args, PyObject *kwargs) {
         }
     }
 
-    Pocket *p = new Pocket;
-
-    std::size_t id = 0;
-    jnc::hash_combine(id, std::string(receptor_filename));
-    jnc::hash_combine(id, std::string(ligand_filename));
-    p->id = id;
-
-    p->center = std::move(center);
-
-    p->box = box;
+    PocketReceptor *p = new PocketReceptor;
 
     int natoms = atoms.size();
     p->atoms.resize(natoms);
     int iatom = 0;
     for (auto && atom : atoms) {
-        PocketAtom pa;
-        for (int i = 0; i < 3; i++) pa.coord[i] = atom[i];
+        auto &pa = p->atoms[iatom];
+        for (int i = 0; i < 3; i++) {
+            pa.coord[i] = atom[i];
+            pa.index[i] = int((atom[i] - (center[i] - box/2.0)) / bin);
+        }
         pa.isLigand = 0;
         pa.name = atom.name;
         iatom++;
     }
 
-    self->pocket = p;
+    self->pocket->receptor = p;
+
+    // id
+    self->pocket->id = 0;
+    jnc::hash_combine(self->pocket->id, std::string(receptor_filename));
+    jnc::hash_combine(self->pocket->id, std::string(ligand_filename));
+
     return 0;
     // return Py_BuildValue("{s:i,s:N,s:d,s:N}", "id", int(id), "center", a2o(center, 3), "box", box, "atoms", atoms_object);//     return 0;
 }
 
 static void Pocket_dealloc(PocketObject *self) {
-    // std::cout << "dealloc: " << self->pocket->id << std::endl;
+    // std::cout << "dealloc: " << self->receptor->id << std::endl;
     if (self->pocket != NULL) {
+        if (self->pocket->ligand != NULL) {
+            delete self->pocket->ligand;
+        } else {
+            if (self->pocket->receptor != NULL) {
+                delete self->pocket->grid;
+                delete self->pocket->receptor;
+            }
+        }
         delete self->pocket;
     }
     Py_TYPE(self)->tp_free((PyObject *) self);
 }
 
-std::vector<std::array<double, 3>> fibonacci_sphere(double radius = 1, int samples=1000) {
+std::vector<std::array<double, 3>> fibonacci_sphere(double radius = 1, int samples=100) {
     std::vector<std::array<double, 3>> points(samples);
     double phi = jnc::pi * (3. - std::sqrt(5.));  // golden angle in radians
 
@@ -625,19 +701,131 @@ std::vector<std::array<double, 3>> fibonacci_sphere(double radius = 1, int sampl
     return points;
 }
 
-static PyObject *Pocket_find_children(PocketObject *self, PyObject *args, PyObject *kwargs) {
-    const char *receptor_filename;
-    const char *ligand_filename;
-    if (!PyArg_ParseTuple(args, "ss", &receptor_filename, &ligand_filename)) {
-        Err("Parameter type error!");
-        return NULL;
+static std::vector<std::array<double, 3>> bond_points = fibonacci_sphere(1, 50);
+
+template<typename Index_>
+static std::list<std::array<int, 3>> surrounding_positions(const PocketGrid &grid, const Index_ &ind, double r1, double r2) {
+    std::list<std::array<int, 3>> positions;
+
+    double halfBin = grid.bin / 2.0;
+    double halfBox = grid.box / 2.0;
+
+    double ox = grid.center[0] - halfBox;
+    double oy = grid.center[1] - halfBox;
+    double oz = grid.center[2] - halfBox;
+    // std::cout << "bin: " << grid.bin << ", box: " << grid.box << ", [xyz]: " << ox << ' ' << oy << ' ' << oz << std::endl;
+
+    double x = grid.bin * ind[0] + ox;
+    double y = grid.bin * ind[1] + oy;
+    double z = grid.bin * ind[2] + oz;
+
+    int x1 = (int) ((x - r2 - ox) / grid.bin);
+    int y1 = (int) ((y - r2 - oy) / grid.bin);
+    int z1 = (int) ((z - r2 - oz) / grid.bin);
+
+    int x2 = (int) ((x + r2 - ox) / grid.bin);
+    int y2 = (int) ((y + r2 - oy) / grid.bin);
+    int z2 = (int) ((z + r2 - oz) / grid.bin);
+
+    // std::cout << "bin: " << grid.bin << ", box: " << grid.box << ", [xyz]: " << ox << ' ' << oy << ' ' << oz << std::endl;
+    // std::cout << x << ' ' << y << ' ' << z << ' ' << x1 << ' ' << y1 << ' ' << z1 << ' ' << x2 << ' ' << y2 << ' ' << z2 << std::endl;
+
+    for (int i = x1; i <= x2; i++) {
+        for (int j = y1; j <= y2; j++) {
+            for (int k = z1; k <= z2; k++) {
+                double dx = i * grid.bin + ox - x;
+                double dy = j * grid.bin + oy - y;
+                double dz = k * grid.bin + oz - z;
+                double d2 = dx * dx + dy * dy + dz * dz;
+                if (d2 >= (r1 - halfBin) * (r1 - halfBin) && d2 < (r2 + halfBin) * (r2 + halfBin)) {
+                    positions.push_back({i, j, k});
+                }
+            }
+        }
     }
-    double box = o2d(PyDict_GetItemString(kwargs, "box"));
-    return PyUnicode_FromFormat("%S %S", self->first, self->last);
+    return positions;
+}
+
+static PocketObject *make_pocket();
+
+static PyObject *Pocket_find_children(PocketObject *self, PyObject *args, PyObject *kwargs) {
+    std::list<std::array<int, 3>> positions;
+    PocketLigandAtom *prevAtom;
+    PocketGrid *grid = self->pocket->grid;
+    if (self->pocket->ligand == NULL) { // root
+        prevAtom = NULL;
+        for (auto && atom : self->pocket->receptor->atoms) {
+            for (auto && ind : surrounding_positions(*grid, atom.index, 2, 4)) { // hydrogen bond length: 2.5-4
+                positions.push_back(ind);
+            }
+        }
+    } else { // non-root
+        prevAtom = &(self->pocket->ligand->lastAtom);
+        auto *atom = prevAtom;
+        do {
+            for (auto && ind : surrounding_positions(*grid, atom->index, 1, 1.5)) { // bond length: 1-1.5
+                positions.push_back(ind);
+            }
+            atom = atom->prev;
+        } while (atom != NULL);
+    }
+    // std::cout << positions.size() << " positions" << std::endl;
+
+    PyObject *children = PyList_New(0);
+    for (auto && ind : positions) {
+        // PocketObject *child = (PocketObject *) PyObject_CallObject((PyObject *) &PocketType, NULL);
+        auto child = make_pocket();
+
+        child->pocket->receptor = self->pocket->receptor;
+        child->pocket->grid = self->pocket->grid;
+        child->pocket->id = self->pocket->id;
+        for (int i = 0; i < 3; i++) jnc::hash_combine(child->pocket->id, ind[i]);
+
+        child->pocket->ligand = new PocketLigand;
+
+        auto &pa = child->pocket->ligand->lastAtom;
+        pa.element = 0;
+        pa.index = ind;
+        pa.prev = prevAtom;
+
+        PyList_Append(children, (PyObject *) child);
+        Py_DECREF(child);
+    }
+
+    return children;
+}
+
+static PyObject *Pocket_receptor_grid(PocketObject *self, PyObject *args, PyObject *kwargs) {
+    auto &atoms = self->pocket->receptor->atoms;
+    int natoms = atoms.size();
+    PyObject *ls = PyList_New(natoms);
+    for (int iatom = 0; iatom < natoms; iatom++) {
+        PyObject *ind = PyList_New(3);
+        for (int i = 0; i < 3; i++) PyList_SET_ITEM(ind, i, PyLong_FromLong(atoms[iatom].index[i]));
+        PyList_SET_ITEM(ls, iatom, ind);
+    }
+    return ls;
+}
+
+static PyObject *Pocket_ligand_grid(PocketObject *self, PyObject *args, PyObject *kwargs) {
+    PyObject *ls = PyList_New(0);
+    if (self->pocket->ligand != NULL) {
+        auto atom = &(self->pocket->ligand->lastAtom);
+        do {
+            PyObject *ind = PyList_New(3);
+            for (int i = 0; i < 3; i++) PyList_SET_ITEM(ind, i, PyLong_FromLong(atom->index[i]));
+            PyList_Append(ls, ind);
+            Py_DECREF(ind);
+            atom = atom->prev;
+        } while (atom != NULL);
+    }
+    return ls;
 }
 
 static PyMethodDef Pocket_methods[] = {
     {"find_children", (PyCFunction) Pocket_find_children, METH_NOARGS, "find children"},
+    {"receptor_grid", (PyCFunction) Pocket_receptor_grid, METH_NOARGS, "receptor grid"},
+    {"ligand_grid", (PyCFunction) Pocket_ligand_grid, METH_NOARGS, "ligand grid"},
     {NULL}  /* Sentinel */
 };
 
@@ -654,6 +842,11 @@ static PyTypeObject PocketType = []{
     obj.tp_methods = Pocket_methods;
     return obj;
 }();
+
+static PocketObject *make_pocket() {
+    PocketObject *obj = (PocketObject *) PyObject_CallObject((PyObject *) &PocketType, NULL);
+    return obj;
+}
 
 //class Mat3 {
 //public:

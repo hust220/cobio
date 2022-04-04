@@ -41,7 +41,8 @@
         "cstddef": "cpp",
         "algorithm": "cpp",
         "memory": "cpp",
-        "cinttypes": "cpp"
+        "cinttypes": "cpp",
+        "random": "cpp"
     },
     "cmake.configureOnOpen": true
 }
