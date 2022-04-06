@@ -206,12 +206,32 @@ inline bool string_starts_with(const Str &str1, const Str &str2) {
     return true;
 }
 
+inline bool string_istarts_with(const Str &str1, const Str &str2) {
+    int sz = str2.size();
+    for (int i = 0; i < sz; i++) {
+        if (tolower(str1[i]) != tolower(str2[i])) return false;
+    }
+    return true;
+}
+
 inline bool string_ends_with(const Str &str1, const Str &str2) {
     int sz = str2.size();
     auto it1 = str1.rbegin();
     auto it2 = str2.rbegin();
     for (int i = 0; i < sz; i++) {
         if (*it1 != *it2) return false;
+        it1++;
+        it2++;
+    }
+    return true;
+}
+
+inline bool string_iends_with(const Str &str1, const Str &str2) {
+    int sz = str2.size();
+    auto it1 = str1.rbegin();
+    auto it2 = str2.rbegin();
+    for (int i = 0; i < sz; i++) {
+        if (tolower(*it1) != tolower(*it2)) return false;
         it1++;
         it2++;
     }
@@ -265,12 +285,34 @@ static Str string_join(_Interval && interval, _Ls && ls) {
     return stream.str();
 }
 
+inline bool string_iequals(const std::string &a, const std::string &b) {
+  unsigned int sz = a.size();
+  if (b.size() != sz)
+    return false;
+  for (unsigned int i = 0; i < sz; ++i)
+    if (tolower(a[i]) != tolower(b[i]))
+      return false;
+  return true;
+}
+
 #define JN_DIE(...) do {\
     std::cerr << ::jnc::string_merge(__FILE__, "(", __LINE__, "): ", __VA_ARGS__) << std::endl;\
     std::abort();\
 } while(0)
 
 #define JN_ASSERT(condition,what) if(!condition){JN_DIE(what);}
+
+template<typename V, int N>
+class ArrayHash {
+public:
+    std::size_t operator()(const std::array<V, N>& arr) const {
+        std::size_t seed = 0;
+        for (auto && i : arr) {
+            hash_combine(seed, i);
+        }
+        return seed;
+    }
+};
 
 namespace pdb {
 

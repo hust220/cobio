@@ -42,7 +42,9 @@
         "algorithm": "cpp",
         "memory": "cpp",
         "cinttypes": "cpp",
-        "random": "cpp"
+        "random": "cpp",
+        "unordered_set": "cpp",
+        "string": "cpp"
     },
     "cmake.configureOnOpen": true
 }

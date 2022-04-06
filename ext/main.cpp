@@ -6,6 +6,8 @@
 #include <numeric>
 #include <stdio.h>
 #include <array>
+#include <vector>
+#include <unordered_set>
 
 //aa1 = ['A',   'R',   'N',   'D',   'C',   'Q',   'E',   'G',   'H',   'I',   'L',   'K',   'M',   'F',   'P',   'S',   'T',   'W',   'Y',   'V',   'O',   'U',   'B',   'Z',   'X',   'J',   '*']
 //aa2 = ['ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE', 'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL', 'PYL', 'SEC', 'ASX', 'GLX', 'XAA', 'XLE', 'TERM']
@@ -621,7 +623,7 @@ static int Pocket_init(PocketObject *self, PyObject *args, PyObject *kwargs) {
     grid->bin = bin;
     grid->box = box;
     grid->center = center;
-    grid->size = (int) std::ceil(box / bin);
+    grid->size = int(box / bin);
 
     self->pocket->grid = grid;
 
@@ -630,7 +632,7 @@ static int Pocket_init(PocketObject *self, PyObject *args, PyObject *kwargs) {
     for (auto && chain : rec[0]) {
         for (auto && res : chain) {
             for (auto && atom : res) {
-                if (atom_in_box(atom, center, box)) {
+                if (atom_in_box(atom, center, box+6.0)) {
                     atoms.push_back(atom);
                 }
             }
@@ -665,7 +667,7 @@ static int Pocket_init(PocketObject *self, PyObject *args, PyObject *kwargs) {
 }
 
 static void Pocket_dealloc(PocketObject *self) {
-    // std::cout << "dealloc: " << self->receptor->id << std::endl;
+    // std::cout << "dealloc: " << self->pocket->id << std::endl;
     if (self->pocket != NULL) {
         if (self->pocket->ligand != NULL) {
             delete self->pocket->ligand;
@@ -731,13 +733,22 @@ static std::list<std::array<int, 3>> surrounding_positions(const PocketGrid &gri
     // std::cout << x << ' ' << y << ' ' << z << ' ' << x1 << ' ' << y1 << ' ' << z1 << ' ' << x2 << ' ' << y2 << ' ' << z2 << std::endl;
 
     for (int i = x1; i <= x2; i++) {
+        if (i < 0 || i > grid.size) continue;
         for (int j = y1; j <= y2; j++) {
+            if (j < 0 || j > grid.size) continue;
             for (int k = z1; k <= z2; k++) {
+                if (k < 0 || k > grid.size) continue;
                 double dx = i * grid.bin + ox - x;
                 double dy = j * grid.bin + oy - y;
                 double dz = k * grid.bin + oz - z;
                 double d2 = dx * dx + dy * dy + dz * dz;
-                if (d2 >= (r1 - halfBin) * (r1 - halfBin) && d2 < (r2 + halfBin) * (r2 + halfBin)) {
+
+                double l = r1 - halfBin;
+                if (l < 0) l = 0;
+
+                double u = r2 + halfBin;
+                
+                if (d2 >= l * l && d2 < u * u) {
                     positions.push_back({i, j, k});
                 }
             }
@@ -752,19 +763,36 @@ static PyObject *Pocket_find_children(PocketObject *self, PyObject *args, PyObje
     std::list<std::array<int, 3>> positions;
     PocketLigandAtom *prevAtom;
     PocketGrid *grid = self->pocket->grid;
+    std::unordered_set<std::array<int, 3>, jnc::ArrayHash<int, 3>> occupied;
+    std::unordered_set<std::array<int, 3>, jnc::ArrayHash<int, 3>> existed;
+    for (auto && atom : self->pocket->receptor->atoms) {
+        for (auto && ind : surrounding_positions(*grid, atom.index, 0, 2)) { // hydrogen bond length: 2.5-4
+            occupied.insert(ind);
+        }
+    }
+
     if (self->pocket->ligand == NULL) { // root
         prevAtom = NULL;
         for (auto && atom : self->pocket->receptor->atoms) {
             for (auto && ind : surrounding_positions(*grid, atom.index, 2, 4)) { // hydrogen bond length: 2.5-4
-                positions.push_back(ind);
+                if (existed.find(ind) == existed.end()) {
+                    positions.push_back(ind);
+                    existed.insert(ind);
+                }
             }
         }
     } else { // non-root
         prevAtom = &(self->pocket->ligand->lastAtom);
         auto *atom = prevAtom;
         do {
+            for (auto && ind : surrounding_positions(*grid, atom->index, 0, 1)) { // bond length: 1-1.5
+                occupied.insert(ind);
+            }
             for (auto && ind : surrounding_positions(*grid, atom->index, 1, 1.5)) { // bond length: 1-1.5
-                positions.push_back(ind);
+                if (existed.find(ind) == existed.end()) {
+                    existed.insert(ind);
+                    positions.push_back(ind);
+                }
             }
             atom = atom->prev;
         } while (atom != NULL);
@@ -773,23 +801,26 @@ static PyObject *Pocket_find_children(PocketObject *self, PyObject *args, PyObje
 
     PyObject *children = PyList_New(0);
     for (auto && ind : positions) {
-        // PocketObject *child = (PocketObject *) PyObject_CallObject((PyObject *) &PocketType, NULL);
-        auto child = make_pocket();
+        if (occupied.find(ind) == occupied.end()) {
+            auto child = make_pocket();
+            // std::cout << "Child reference count1: " << Py_REFCNT(child) << std::endl;
+            child->pocket->receptor = self->pocket->receptor;
+            child->pocket->grid = self->pocket->grid;
+            child->pocket->id = self->pocket->id;
+            for (int i = 0; i < 3; i++) jnc::hash_combine(child->pocket->id, ind[i]);
 
-        child->pocket->receptor = self->pocket->receptor;
-        child->pocket->grid = self->pocket->grid;
-        child->pocket->id = self->pocket->id;
-        for (int i = 0; i < 3; i++) jnc::hash_combine(child->pocket->id, ind[i]);
+            child->pocket->ligand = new PocketLigand;
 
-        child->pocket->ligand = new PocketLigand;
+            auto &pa = child->pocket->ligand->lastAtom;
+            pa.element = 0;
+            for (int i = 0; i < 3; i++) pa.index[i] = ind[i];
+            pa.prev = prevAtom;
 
-        auto &pa = child->pocket->ligand->lastAtom;
-        pa.element = 0;
-        pa.index = ind;
-        pa.prev = prevAtom;
-
-        PyList_Append(children, (PyObject *) child);
-        Py_DECREF(child);
+            PyList_Append(children, (PyObject *) child);
+            // std::cout << "Child reference count2: " << Py_REFCNT(child) << std::endl;
+            Py_DECREF(child);
+            // std::cout << "Child reference count3: " << Py_REFCNT(child) << std::endl;
+        }
     }
 
     return children;
@@ -797,12 +828,17 @@ static PyObject *Pocket_find_children(PocketObject *self, PyObject *args, PyObje
 
 static PyObject *Pocket_receptor_grid(PocketObject *self, PyObject *args, PyObject *kwargs) {
     auto &atoms = self->pocket->receptor->atoms;
-    int natoms = atoms.size();
-    PyObject *ls = PyList_New(natoms);
-    for (int iatom = 0; iatom < natoms; iatom++) {
-        PyObject *ind = PyList_New(3);
-        for (int i = 0; i < 3; i++) PyList_SET_ITEM(ind, i, PyLong_FromLong(atoms[iatom].index[i]));
-        PyList_SET_ITEM(ls, iatom, ind);
+    PyObject *ls = PyList_New(0);
+    auto *grid = self->pocket->grid;
+    for (auto && atom : atoms) {
+        if (std::all_of(atom.index.begin(), atom.index.end(), [grid](int i){
+            return i >= 0 && i <= grid->size;
+        })) {
+            PyObject *ind = PyList_New(3);
+            for (int i = 0; i < 3; i++) PyList_SET_ITEM(ind, i, PyLong_FromLong(atom.index[i]));
+            PyList_Append(ls, ind);
+            Py_DECREF(ind);
+        }
     }
     return ls;
 }
