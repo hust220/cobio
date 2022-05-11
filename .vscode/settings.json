@@ -44,7 +44,9 @@
         "cinttypes": "cpp",
         "random": "cpp",
         "unordered_set": "cpp",
-        "string": "cpp"
+        "string": "cpp",
+        "bitset": "cpp",
+        "regex": "cpp"
     },
     "cmake.configureOnOpen": true
 }

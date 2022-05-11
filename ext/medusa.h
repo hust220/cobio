@@ -3491,7 +3491,7 @@ public:
       angle_table[i] = right.angle_table[i];
   }
 
-  void init(top_residue &ires, int aa_t) {
+  void init(TopResidue &ires, int aa_t) {
     type2index = new char[_HAL_ + 1];
     for (int i = 0; i < _HAL_ + 1; i++)
       type2index[i] = -1;
@@ -4564,10 +4564,10 @@ public:
 
   ~WEIGHT_COEF() { delete[] coef; }
 
-  int readFile(const char *file) {
+  int readFile(const std::string &file) {
     char buf[1024];
     int i = 0;
-    ifstream in(file, ios::in);
+    ifstream in(file.c_str(), ios::in);
     while (in.getline(buf, 1024)) {
       if (i >= nCOEF1)
         return 0;
@@ -4632,7 +4632,7 @@ public:
   }
 };
 
-struct atom_mass_t {
+struct TopAtomType {
   int FFTindex = -1;
   double atm_mass = INF;
   string FFname;
@@ -4649,7 +4649,7 @@ struct atom_mass_t {
   //   double getMass() const { return atm_mass; }
 };
 
-struct top_atom {
+struct TopAtom {
   int FFtype = -1;
   double charge = INF;
   vec ic;
@@ -4670,9 +4670,9 @@ struct top_atom {
   //   const vec &getIC() { return ic; }
 };
 
-struct top_residue {
+struct TopResidue {
   string PDBname;
-  top_atom *a = NULL;
+  TopAtom *a = NULL;
   int natom = 0;
 
   int nbond = 0;
@@ -4682,9 +4682,9 @@ struct top_residue {
   int nimproper = 0;
   int **improper;
 
-  top_residue(const string &name, int n) { init(name, n); }
+  TopResidue(const string &name, int n) { init(name, n); }
 
-  ~top_residue() {
+  ~TopResidue() {
     if (a != NULL) {
       delete[] a;
     }
@@ -4705,12 +4705,12 @@ struct top_residue {
   void init(const string &name, int n) {
     PDBname = name;
     natom = n;
-    a = new top_atom[n];
+    a = new TopAtom[n];
   }
 
   int getNAtom() { return natom; }
 
-  top_atom *getAtom(int i) { return a + i; }
+  TopAtom *getAtom(int i) { return a + i; }
 
   int size() { return natom; }
 
@@ -4725,7 +4725,7 @@ struct top_residue {
     return -1;
   }
 
-  int top_residue::getAtomIndex(const string &atm_name) {
+  int TopResidue::getAtomIndex(const string &atm_name) {
     for (int j = 0; j < size(); j++) {
       if (getAtom(j)->PDBname == atm_name)
         //   if (!strcmp(getAtom(j)->getName(), atm_name)) // corr atm name
@@ -4771,10 +4771,10 @@ struct top_residue {
 
 struct topology {
   char file[100];
-  // atom_mass_t* mass_table;
-  vector<atom_mass_t> mass_table;
+  // TopAtomType* mass_table;
+  vector<TopAtomType> mass_table;
   int ntype = 0;
-  vector<top_residue *> resi_table;
+  vector<TopResidue *> resi_table;
 
   topology(const string &name) { addTopology(name); }
 
@@ -4792,15 +4792,15 @@ struct topology {
 
   int getNTopRecords() { return resi_table.size(); }
 
-  void addRes(top_residue *newRes) { resi_table.push_back(newRes); }
+  void addRes(TopResidue *newRes) { resi_table.push_back(newRes); }
 
-  top_residue *getTopResi(int i) const {
+  TopResidue *getTopResi(int i) const {
     if (i >= 0 && i < resi_table.size())
       return resi_table[i];
     return NULL;
   }
 
-  top_residue *getTopResi(const char *res_name) const {
+  TopResidue *getTopResi(const char *res_name) const {
     int res_index = -1;
     for (int i = 0; i < resi_table.size(); i++) {
       if (resi_table[i]->PDBname == res_name) {
@@ -4830,8 +4830,8 @@ struct topology {
     return res_index;
   }
 
-  // atom_mass_t* getMassTable()const{return mass_table;}
-  //   const vector<atom_mass_t> &getMassTable() const { return mass_table; }
+  // TopAtomType* getMassTable()const{return mass_table;}
+  //   const vector<TopAtomType> &getMassTable() const { return mass_table; }
 
   //   int getNType() const { return ntype; }
   // return the atom type, mass and chage for a given atom of a given residue
@@ -4920,7 +4920,7 @@ public:
   BBDep_AA();
   ~BBDep_AA();
 
-  void readFile(const char *file);
+  void readFile(const std::string &file);
   void updateStatisticalEnergy();
 
   double getE_STAT(int iF, int iY, int ia) { return e_stat[iF][iY][ia]; }
@@ -5549,7 +5549,7 @@ public:
     // delete [] EEF1_SOLV;
   }
 
-  void init(const char *file, const topology &top);
+  void init(const std::string &file, const topology &top);
   void addParam(const char *file, const topology &top);
 
   int getVDWdata(int type1, int type2, double &B, double &A, double &eps,

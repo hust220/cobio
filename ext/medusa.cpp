@@ -883,7 +883,7 @@ void protein::initConnect(const topology &top) {
   }
   con.init(natoms);
 
-  top_residue *theTopRes = NULL;
+  TopResidue *theTopRes = NULL;
   residue *theRes = NULL;
   atom *theAtom = NULL;
   atom *theH = NULL;
@@ -9985,7 +9985,7 @@ void topology::addTopology(const string &name) {
       }
     }
     if (!exist) {
-      mass_table.push_back(atom_mass_t());
+      mass_table.push_back(TopAtomType());
       mass_table.back().init(ch_tmp, f_dummy);
       mass_table.back().FFTindex = int(mass_table.size()) - 1;
     }
@@ -10038,7 +10038,7 @@ void topology::addTopology(const string &name) {
         if (!exist) {
           start = 0;
           // start to construct the read residue infor
-          top_residue *res = new top_residue(resiname, pool.size());
+          TopResidue *res = new TopResidue(resiname, pool.size());
           // cout << "RESIDUE NAME:"<<resiname << endl;
           for (int i = 0; i < pool.size(); i++) {
             int nchar = pool[i].length();
@@ -10313,8 +10313,8 @@ void BBDep_AA::updateCAP() {
   }
 }
 
-void BBDep_AA::readFile(const char *file) {
-  ifstream in(file, ios::in);
+void BBDep_AA::readFile(const std::string &file) {
+  ifstream in(file.c_str(), ios::in);
   char buf[100];
   char name[10];
   double nrecords;
@@ -10745,35 +10745,29 @@ void medusa_score() {
   // midRange, reducedVDW);
 
   double mir = 9.0;
-  if (longRange) {
-    mir = 9.0;
-  } else if (shortRange) {
-    mir = 5.5;
-  } else if (midRange) {
-    mir = 6.5;
-  }
-
-  char buf[1000];
+  // if (longRange) {
+  //   mir = 9.0;
+  // } else if (shortRange) {
+  //   mir = 5.5;
+  // } else if (midRange) {
+  //   mir = 6.5;
+  // }
 
   topology top(jnc::string_format("%s/cedutop.pro", paramDir));
 
   /*backbone dependent rotamer library*/
-  // sprintf(buf,"%s/bbdep02.May.lib",paramDir);
   BBDep_RotLib bbdep_rotlib;
   bbdep_rotlib.readFile(jnc::string_format("%s/bbdep02.May.lib", paramDir));
-  // bbdep_rotlib.readFile(buf);
   bbdep_rotlib.updateStatisticalEnergy();
 
   /*backbone dependent amino acid distribution*/
-  sprintf(buf, "%s/PDB30.PHI-PSI-AA-DIST", paramDir);
   BBDep_AA bbdep_aa;
-  bbdep_aa.readFile(buf);
+  bbdep_aa.readFile(jnc::string_format("%s/PDB30.PHI-PSI-AA-DIST", paramDir));
   bbdep_aa.updateStatisticalEnergy();
 
   /*nonbonded-vdw*/
-  sprintf(buf, "%s/medupar.nonb", paramDir);
   VDW vdw;
-  vdw.init(buf, top);
+  vdw.init(jnc::string_format("%s/medupar.nonb", paramDir), top);
   //  vdw.ced2charmm();//change to CHARMM19 force field, to match EEF1
   if (reducedVDW) {
     vdw.shrink(0.95); // use a smaller VDW distance
@@ -10781,24 +10775,9 @@ void medusa_score() {
   vdw.HBond_RFix(top); // to avoid the disfavoration of HBonding(HBA-D)
 
   /*weight-coef of energy terms*/
-  // sprintf(buf,"%s/W_E.coef",paramDir);
-  if (longRange && !reducedVDW) {
-    sprintf(buf, "%s/full-vdw.coef", paramDir);
-  } else if (longRange && reducedVDW) {
-    sprintf(buf, "%s/vdw-rescaled.coef", paramDir);
-  } else if (shortRange && !reducedVDW) {
-    sprintf(buf, "%s/cutoff5.5.coef", paramDir);
-  } else if (shortRange && reducedVDW) {
-    sprintf(buf, "%s/cutoff5.5-rescaled.coef", paramDir);
-  } else if (midRange) {
-    sprintf(buf, "%s/cutoff6.5.coef", paramDir);
-  } else {
-    cerr << "error in the input options" << endl;
-    exit(1);
-  }
   WEIGHT_COEF weight;
-  if (!weight.readFile(buf)) {
-    cerr << "can not open the weight file: " << buf << endl;
+  if (!weight.readFile(jnc::string_format("%s/full-vdw.coef", paramDir))) {
+    cerr << "can not open the weight file";
     exit(1);
   }
 
@@ -10820,10 +10799,7 @@ void medusa_score() {
   double phi, psi;
   int iF, iY;
   /*update the ICHS for each residue*/
-  for (int i = 0; i < gp.size(); i++) {
-    gp.getFY(i, phi, psi);
-    FY_double2int(phi, psi, iF, iY);
-    // if(phi==INF) iF = FY_NBIN;
+  for (int i = 0; i https://www.machinelearningplus.com/python/parallel-processing-python/iF = FY_NBIN;
     // else iF = static_cast<int>((phi/rpi-FY_MIN)/FY_BIN);
     // if(psi==INF) iY = FY_NBIN;
     // else iY = static_cast<int>((psi/rpi-FY_MIN)/FY_BIN);
@@ -10865,15 +10841,7 @@ void medusa_score() {
   double **ESB_SS_2D = initArray2D<double>(gp.size());
   double **VDWA_SB_2D = initArray2D<double>(gp.size());
   double **VDWR_SB_2D = initArray2D<double>(gp.size());
-  double **SOLV_SB_2D = initArray2D<double>(gp.size());
-  for (int i = 0; i < gp.size(); i++) {
-    for (int j = 0; j < gp.size(); j++) {
-      VDWA_SS_2D[i][j] = 0;
-      VDWR_SS_2D[i][j] = 0;
-      SOLV_SS_2D[i][j] = 0;
-      VDWA_SB_2D[i][j] = 0;
-      VDWR_SB_2D[i][j] = 0;
-      SOLV_SB_2D[i][j] = 0;
+  double **SOLV_SB_2D =https://www.machinelearningplus.com/python/parallel-processing-python/= 0;
     }
   }
 
@@ -10917,12 +10885,7 @@ void medusa_score() {
       SOLV_SS_2D[i][j] = SOLV_SS_2D[j][i] += SOLV_SS_1D[j];
     }
 
-    for (int j = 0; j < gp.size(); j++) {
-      VDWA_SB_2D[i][j] += VDWA_SB_1D[j];
-      VDWR_SB_2D[i][j] += VDWR_SB_1D[j];
-      SOLV_SB_2D[i][j] += SOLV_SB_1D[j];
-    }
-    SOLV_SS_2D[i][i] = SOLV_SS_1D[i];
+    for (int j = 0; j < gphttps://www.machinelearningplus.com/python/parallel-processing-python/_SS_1D[i];
   }
 
   // END OF THE CALCULATION OF INITIAL ENERGY
@@ -10974,8 +10937,7 @@ void medusa_score() {
   cout << the_E << " " << evdw_a << " " << evdw_r << " " << esolv << " "
        << ehb_bb << " " << ehb_sb << " " << ehb_ss << " " << efy_aa << " "
        << efy_chi << " " << e_aa_ref << endl;
-
-  gp.writePDB(cout);
 }
+
 
 } // namespace medusa
