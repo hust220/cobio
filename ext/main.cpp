@@ -31,7 +31,7 @@ template <> PyObject *obj_to<PyObject *>(PyObject *o) { return o; }
 template <typename Output_, typename Input_> Output_ obj_get(PyObject *obj, const Input_ &key) {
   auto key_object = to_obj(key);
   auto item_object = PyObject_GetItem(obj, key_object);
-  Py_DECREF(item_object);
+  Py_DECREF(key_object);
 
   auto item = obj_to<Output_>(item_object);
   Py_DECREF(item_object);
@@ -447,7 +447,7 @@ static PyObject *compound_grow(PyObject *self, PyObject *args, PyObject *kwargs)
   int r = int(std::ceil(max_bond / bin - 1));
   std::vector<std::array<int, 3>> coords(natoms);
   for (int iatom = 0; iatom < natoms; iatom++) {
-    auto atom = obj_get<PyObject *>(atoms, iatom);
+    auto atom = obj_get<PyObject *>(atoms, iatom); // borrowed reference
 
     auto &c = coords[iatom];
     for (int i = 0; i < 3; i++) {
@@ -460,8 +460,6 @@ static PyObject *compound_grow(PyObject *self, PyObject *args, PyObject *kwargs)
         }
       }
     }
-
-    Py_DECREF(atom);
     // int type = PyLong_AS_LONG(PyList_GET_ITEM(atom, 3));
   }
 
