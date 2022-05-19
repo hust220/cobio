@@ -17,6 +17,27 @@
 // 'SER', 'THR', 'TRP', 'TYR', 'VAL', 'PYL', 'SEC', 'ASX', 'GLX', 'XAA', 'XLE',
 // 'TERM']
 
+template <typename T> PyObject *to_obj(T);
+template <> PyObject *to_obj(int n) { return PyLong_FromLong(n); }
+template <> PyObject *to_obj(double n) { return PyFloat_FromDouble(n); }
+template <> PyObject *to_obj(const std::string &str) { return PyUnicode_FromString(str.c_str()); }
+
+template <typename T> T obj_to(PyObject *);
+template <> int obj_to<int>(PyObject *o) { return int(PyLong_AS_LONG(o)); }
+template <> double obj_to<double>(PyObject *o) { return PyFloat_AS_DOUBLE(o); }
+template <> std::string obj_to<std::string>(PyObject *o) { return PyBytes_AS_STRING(o); }
+template <> PyObject *obj_to<PyObject *>(PyObject *o) { return o; }
+
+template <typename Output_, typename Input_> Output_ obj_get(PyObject *obj, const Input_ &key) {
+  auto key_object = to_obj(key);
+  auto item_object = PyObject_GetItem(obj, key_object);
+  Py_DECREF(item_object);
+
+  auto item = obj_to<Output_>(item_object);
+  Py_DECREF(item_object);
+  return item;
+}
+
 struct MatViewer {
   PyObject *obj;
   MatViewer(PyObject *o) : obj(o) {}
@@ -392,30 +413,31 @@ static PyObject *map_atoms(PyObject *self, PyObject *args) {
 
 static PyObject *compound_grow(PyObject *self, PyObject *args, PyObject *kwargs) {
   PyObject *atoms;
-  if (!PyArg_ParseTuple(args, "O", &atoms)) {
+  double bin = 0.4;
+  int ntypes = 7;
+  int coords_only = 0;
+
+  char *kwlist[] = {"atoms", "bin", "ntypes", "coords_only", NULL};
+
+  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|dip", kwlist, &atoms, &bin, &ntypes, &coords_only)) {
     Err("Parameter type error!");
-    return 0;
+    return NULL;
   }
 
-  PyObject *bin_object = PyDict_GetItemString(kwargs, "bin");
-  double bin = (bin_object == NULL) ? 0.4 : o2d(bin_object);
-
-  PyObject *ntypes_object = PyDict_GetItemString(kwargs, "ntypes");
-  int ntypes = (ntypes_object == NULL) ? 7 : o2i(ntypes_object);
-
-  int natoms = PyList_Size(atoms);
+  int natoms = PyObject_Size(atoms);
 
   if (natoms == 0) {
-    PyObject *children_object = PyList_New(ntypes);
-    for (int i = 0; i < ntypes; i++) {
-      PyObject *child_object = PyList_New(4);
-      for (int j = 0; j < 3; j++) {
-        PyList_SET_ITEM(child_object, j, PyLong_FromLong(10));
+    if (coords_only) {
+      PyObject *children_object = PyList_New(1);
+      PyList_SetItem(children_object, 0, Py_BuildValue("(i,i,i)", 10, 10, 10)); // steal the reference
+      return children_object;
+    } else {
+      PyObject *children_object = PyList_New(ntypes);
+      for (int i = 0; i < ntypes; i++) {
+        PyList_SetItem(children_object, i, Py_BuildValue("(i,i,i,i)", 10, 10, 10, i)); // steal the reference
       }
-      PyList_SET_ITEM(child_object, 3, PyLong_FromLong(i));
-      PyList_SET_ITEM(children_object, i, child_object);
+      return children_object;
     }
-    return children_object;
   }
 
   std::unordered_set<std::array<int, 3>, jnc::ArrayHash<int, 3>> occupied;
@@ -425,10 +447,11 @@ static PyObject *compound_grow(PyObject *self, PyObject *args, PyObject *kwargs)
   int r = int(std::ceil(max_bond / bin - 1));
   std::vector<std::array<int, 3>> coords(natoms);
   for (int iatom = 0; iatom < natoms; iatom++) {
-    auto atom = PyList_GET_ITEM(atoms, iatom);
+    auto atom = obj_get<PyObject *>(atoms, iatom);
+
     auto &c = coords[iatom];
     for (int i = 0; i < 3; i++) {
-      c[i] = PyLong_AS_LONG(PyList_GET_ITEM(atom, i));
+      c[i] = obj_get<int>(atom, i);
     }
     for (int i = c[0] - t; i <= c[0] + t; i++) {
       for (int j = c[1] - t; j <= c[1] + t; j++) {
@@ -437,16 +460,18 @@ static PyObject *compound_grow(PyObject *self, PyObject *args, PyObject *kwargs)
         }
       }
     }
+
+    Py_DECREF(atom);
     // int type = PyLong_AS_LONG(PyList_GET_ITEM(atom, 3));
   }
 
   std::unordered_set<std::array<int, 3>, jnc::ArrayHash<int, 3>> children;
   for (int iatom = 0; iatom < natoms; iatom++) {
     auto &c = coords[iatom];
-      for (int i = c[0] - r; i <= c[0] + r; i++) {
+    for (int i = c[0] - r; i <= c[0] + r; i++) {
       for (int j = c[1] - r; j <= c[1] + r; j++) {
         for (int k = c[2] - r; k <= c[2] + r; k++) {
-          std::array<int, 3> ind{i,j,k};
+          std::array<int, 3> ind{i, j, k};
           if (occupied.find(ind) == occupied.end()) {
             if (i >= 0 && j >= 0 && k >= 0) {
               children.insert(ind);
@@ -457,19 +482,19 @@ static PyObject *compound_grow(PyObject *self, PyObject *args, PyObject *kwargs)
     }
   }
 
-  int nchildren = children.size() * ntypes;
+  int nchildren = children.size() * (coords_only ? 1 : ntypes);
 
   PyObject *children_object = PyList_New(nchildren);
   int ichild = 0;
-  for (auto && c : children) {
-    for (int i = 0; i < ntypes; i++) {
-      PyObject *child_object = PyList_New(4);
-      for (int j = 0; j < 3; j++) {
-        PyList_SET_ITEM(child_object, j, PyLong_FromLong(c[j]));
-      }
-      PyList_SET_ITEM(child_object, 3, PyLong_FromLong(i));
-      PyList_SET_ITEM(children_object, ichild, child_object);
+  for (auto &&c : children) {
+    if (coords_only) {
+      PyList_SetItem(children_object, ichild, Py_BuildValue("(i,i,i)", c[0], c[1], c[2])); // steal the reference
       ichild++;
+    } else {
+      for (int i = 0; i < ntypes; i++) {
+        PyList_SetItem(children_object, ichild, Py_BuildValue("(i,i,i,i)", c[0], c[1], c[2], i)); // steal the reference
+        ichild++;
+      }
     }
   }
 
