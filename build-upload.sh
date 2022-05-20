@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e -u -x
 
+yum --disablerepo=epel -y update  ca-certificates
+
 PLAT=manylinux2014_x86_64
 
 function repair_wheel {

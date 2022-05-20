@@ -456,7 +456,12 @@ static PyObject *compound_grow(PyObject *self, PyObject *args, PyObject *kwargs)
     for (int i = c[0] - t; i <= c[0] + t; i++) {
       for (int j = c[1] - t; j <= c[1] + t; j++) {
         for (int k = c[2] - t; k <= c[2] + t; k++) {
-          occupied.insert(std::array<int, 3>{i, j, k});
+          double x = (std::abs(i - c[0]) + 1) * bin;
+          double y = (std::abs(j - c[1]) + 1) * bin;
+          double z = (std::abs(k - c[2]) + 1) * bin;
+          if (x * x + y * y + z * z < min_bond * min_bond) {
+            occupied.insert(std::array<int, 3>{i, j, k});
+          }
         }
       }
     }
