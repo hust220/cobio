@@ -1,0 +1,16 @@
+/gpfs/scratch/juw1179/programs/miniconda/3/lib/python3.9/site-packages/jnpy-0.0.10-py3.9-linux-x86_64.egg/_jnpy.cpython-39-x86_64-linux-gnu.so
+/gpfs/scratch/juw1179/programs/miniconda/3/lib/python3.9/site-packages/jnpy-0.0.10-py3.9-linux-x86_64.egg/_jnpy.py
+/gpfs/scratch/juw1179/programs/miniconda/3/lib/python3.9/site-packages/jnpy-0.0.10-py3.9-linux-x86_64.egg/jnpy/__init__.py
+/gpfs/scratch/juw1179/programs/miniconda/3/lib/python3.9/site-packages/jnpy-0.0.10-py3.9-linux-x86_64.egg/jnpy/bio/pdb.py
+/gpfs/scratch/juw1179/programs/miniconda/3/lib/python3.9/site-packages/jnpy-0.0.10-py3.9-linux-x86_64.egg/jnpy/bio/__init__.py
+/gpfs/scratch/juw1179/programs/miniconda/3/lib/python3.9/site-packages/jnpy-0.0.10-py3.9-linux-x86_64.egg/jnpy/bio/__pycache__/pdb.cpython-39.pyc
+/gpfs/scratch/juw1179/programs/miniconda/3/lib/python3.9/site-packages/jnpy-0.0.10-py3.9-linux-x86_64.egg/jnpy/bio/__pycache__/__init__.cpython-39.pyc
+/gpfs/scratch/juw1179/programs/miniconda/3/lib/python3.9/site-packages/jnpy-0.0.10-py3.9-linux-x86_64.egg/jnpy/__pycache__/__init__.cpython-39.pyc
+/gpfs/scratch/juw1179/programs/miniconda/3/lib/python3.9/site-packages/jnpy-0.0.10-py3.9-linux-x86_64.egg/EGG-INFO/SOURCES.txt
+/gpfs/scratch/juw1179/programs/miniconda/3/lib/python3.9/site-packages/jnpy-0.0.10-py3.9-linux-x86_64.egg/EGG-INFO/PKG-INFO
+/gpfs/scratch/juw1179/programs/miniconda/3/lib/python3.9/site-packages/jnpy-0.0.10-py3.9-linux-x86_64.egg/EGG-INFO/native_libs.txt
+/gpfs/scratch/juw1179/programs/miniconda/3/lib/python3.9/site-packages/jnpy-0.0.10-py3.9-linux-x86_64.egg/EGG-INFO/dependency_links.txt
+/gpfs/scratch/juw1179/programs/miniconda/3/lib/python3.9/site-packages/jnpy-0.0.10-py3.9-linux-x86_64.egg/EGG-INFO/top_level.txt
+/gpfs/scratch/juw1179/programs/miniconda/3/lib/python3.9/site-packages/jnpy-0.0.10-py3.9-linux-x86_64.egg/EGG-INFO/requires.txt
+/gpfs/scratch/juw1179/programs/miniconda/3/lib/python3.9/site-packages/jnpy-0.0.10-py3.9-linux-x86_64.egg/EGG-INFO/not-zip-safe
+/gpfs/scratch/juw1179/programs/miniconda/3/lib/python3.9/site-packages/jnpy-0.0.10-py3.9-linux-x86_64.egg/__pycache__/_jnpy.cpython-39.pyc
