@@ -475,9 +475,14 @@ static PyObject *compound_grow(PyObject *self, PyObject *args, PyObject *kwargs)
       for (int j = c[1] - r; j <= c[1] + r; j++) {
         for (int k = c[2] - r; k <= c[2] + r; k++) {
           std::array<int, 3> ind{i, j, k};
-          if (occupied.find(ind) == occupied.end()) {
-            if (i >= 0 && j >= 0 && k >= 0) {
-              children.insert(ind);
+          double x = std::max(std::abs(i - c[0]) - 1, 0) * bin;
+          double y = std::max(std::abs(j - c[1]) - 1, 0) * bin;
+          double z = std::max(std::abs(k - c[2]) - 1, 0) * bin;
+          if (x * x + y * y + z * z < max_bond * max_bond) {
+            if (occupied.find(ind) == occupied.end()) {
+              if (i >= 0 && j >= 0 && k >= 0) {
+                children.insert(ind);
+              }
             }
           }
         }
