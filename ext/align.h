@@ -55,7 +55,7 @@ struct Alignment {
                 v[i] = ind[seq[i]];
             }
         }
-        return std::move(v);
+        return v;
     }
 
     /* 

@@ -1,6 +1,7 @@
 import setuptools
 from setuptools import setup
 from distutils.core import setup, Extension
+import glob
 
 # Available at setup time due to pyproject.toml
 #from pybind11.setup_helpers import Pybind11Extension, build_ext
@@ -10,18 +11,11 @@ import sys
 
 __version__ = "0.1.12"
 
-# The main interface is through Pybind11Extension.
-# * You can add cxx_std=11/14/17, and then build_ext can be removed.
-# * You can set include_pybind11=false to add the include directory yourself,
-#   say from a submodule.
-#
-# Note:
-#   Sort input source files if you glob sources to ensure bit-for-bit
-#   reproducible builds (https://github.com/pybind/python_example/pull/53)
+cppfiles = glob.glob("ext/*.cpp")
+print(cppfiles)
 
 ext_modules = [
-    #  Pybind11Extension("_jnpy", ["ext/main.cpp"], define_macros = [('VERSION_INFO', __version__)])
-    Extension("_jnpy", ["ext/main.cpp"], extra_compile_args=['-std=c++11'])
+    Extension("_jnpy", cppfiles, extra_compile_args=['-std=c++20'])
 ]
 
 setup(
@@ -33,9 +27,9 @@ setup(
     description="Jian's Python Library",
     long_description="",
     include_package_data=True,
-    package_data={
-        '': ['medusa_parameter/*']
-    },
+    # package_data={
+    #     '': ['medusa_parameter/*']
+    # },
     packages=setuptools.find_packages(),
     ext_modules=ext_modules,
     extras_require={"test": "pytest"},

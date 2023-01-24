@@ -29,8 +29,8 @@ int add(int i, int j) {
 }
 
 Array3d extract(const std::string &recfile, const std::string &ligfile) {
-    auto rec = jnc::pdb::read_pdb(recfile);
-    auto lig = jnc::mol2::read_mol2s(ligfile)[0];
+    auto rec = jnc::bio::read_pdb(recfile);
+    auto lig = jnc::bio::read_mol2s(ligfile)[0];
     auto rs = rec[0].presidues();
 
     int nresidues = rs.size();
