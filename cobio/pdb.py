@@ -2,31 +2,32 @@ import sys
 import math
 import re
 import os
+from io import BytesIO, StringIO
+import requests, collections
+import _cobio as cb
 
-class Atom:
-  def __init__(self, name, num, x, y, z):
+class PdbAtom:
+  def __init__(selfname, name='', num=-1, coords=[0,0,0], is_het=False):
     self.name = name
     self.num = num
-    self.coord = [x, y, z]
-    self.is_het = False
+    self.coords = coords
+    self.is_het = is_het
 
   def __getitem__(self, i):
-    return self.coord[i]
+    return self.coords[i]
 
   def __setitem__(self, i, v):
-    self.coord[i] = v
+    self.coords[i] = v
 
   def __iter__(self):
-    return iter(self.coord)
+    return iter(self.coords)
 
-  def distance(self, atom2):
-    dx = self[0] - atom2[0]
-    dy = self[1] - atom2[1]
-    dz = self[2] - atom2[2]
-    return math.sqrt(dx * dx + dy * dy + dz * dz)
+  @classmethod
+  def from_dict(cls, dt):
+    return PdbAtom(**dt)
 
-class Residue:
-  def __init__(self, name, num, atoms):
+class PdbResidue:
+  def __init__(self, name='', num=-1, atoms=[]):
     self.name = name
     self.num = num
     self.atoms = atoms
@@ -38,15 +39,21 @@ class Residue:
     if isinstance(key, int):
       return self.atoms[key]
     else:
-      for atom in atoms:
+      for atom in self.atoms:
         if atom.name == key:
           return atom
       print("Couldn't find atom '%s'" % key)
       write_residue(self)
       quit()
 
-class Chain:
-  def __init__(self, name, residues):
+  @classmethod
+  def from_dict(cls, dt):
+    if 'atoms' in dt:
+      dt['atoms'] = [PdbAtom.from_dict(dt) for dt in dt['atoms']]
+    return PdbResidue(**dt)
+
+class PdbChain:
+  def __init__(self, name='', residues=[]):
     self.name = name
     self.residues = residues
 
@@ -55,7 +62,7 @@ class Chain:
 
   def __getitem__(self, key):
     if isinstance(key, int):
-      return super(Chain, self).__getitem__(key)
+      return super(PdbChain, self).__getitem__(key)
     else:
       for residue in self:
         if residue.num == key:
@@ -71,8 +78,14 @@ class Chain:
   def atoms(self):
     return [atom for residue in self.residues for atom in residue.atoms]
 
-class Model:
-  def __init__(self, num, chains):
+  @classmethod
+  def from_dict(cls, dt):
+    if 'residues' in dt:
+      dt['residues'] = [PdbResidue.from_dict(dt) for dt in dt['residues']]
+    return PdbChain(**dt)
+
+class PdbModel:
+  def __init__(self, num=-1, chains=[]):
     self.num = num
     self.chains = chains
 
@@ -101,8 +114,14 @@ class Model:
   def atoms(self):
     return [atom for chain in self for residue in chain for atom in residue]
 
+  @classmethod
+  def from_dict(cls, dt):
+    if 'chains' in dt:
+      dt['chains'] = [PdbChain.from_dict(dt) for dt in dt['chains']]
+    return PdbModel(**dt)
+
 class Pdb:
-  def __init__(self, name, models):
+  def __init__(self, name=[], models=[]):
     self.name = name
     self.models = models
 
@@ -112,8 +131,22 @@ class Pdb:
   def __getitem__(self, key):
     return self.models[key]
 
-def read_pdb(filename):
-  return PdbParser(filename).pdb
+  @classmethod
+  def from_dict(cls, dt):
+    if 'models' in dt:
+      dt['models'] = [PdbModel.from_dict(dt) for dt in dt['models']]
+    return Pdb(**dt)
+
+def read_pdb(filename='', content='', name=''):
+  if filename != '':
+    if name == '':
+      name = os.path.splitext(os.path.basename(filename))[0]
+    return PdbParser(open(filename), name).pdb
+  if content != '':
+    return PdbParser(StringIO(content), name).pdb
+
+def read_cif_as_pdb(filename):
+  return Pdb.from_dict(cb.read_cif_as_pdb(filename))
 
 class ParsedLine:
   def __init__(self, line):
@@ -128,7 +161,7 @@ class ParsedLine:
     self.is_het = line.startswith('HETATM')
 
 class PdbParser:
-  def __init__(self, file_name):
+  def __init__(self, IO, name):
     self.atoms = []
     self.residues = []
     self.chains = []
@@ -136,7 +169,7 @@ class PdbParser:
     self.oline = ''
     self.model_num = 1
     i = 0
-    for line in open(file_name):
+    for line in IO:
       if line.startswith('ATOM') or line.startswith('HETATM'):
         line = ParsedLine(line)
         if i > 0:
@@ -144,7 +177,7 @@ class PdbParser:
             self.add_chain()
           elif line.res_num != self.oline.res_num or line.res_name != self.oline.res_name:
             self.add_residue()
-        self.atoms.append(Atom(line.atom_name, line.atom_num, line.x, line.y, line.z))
+        self.atoms.append(PdbAtom(line.atom_name, line.atom_num, line.x, line.y, line.z))
         self.atoms[-1].is_het = line.is_het
         self.oline = line
         i += 1
@@ -161,23 +194,23 @@ class PdbParser:
       elif line[0:3] == "TER":
         self.add_chain()
     self.add_model()
-    self.pdb = Pdb(os.path.splitext(file_name)[0], self.models)
+    self.pdb = Pdb(name, self.models)
 
   def add_residue(self):
     if len(self.atoms) > 0:
-      self.residues.append(Residue(self.oline.res_name, self.oline.res_num, self.atoms))
+      self.residues.append(PdbResidue(self.oline.res_name, self.oline.res_num, self.atoms))
       self.atoms = []
 
   def add_chain(self):
     self.add_residue()
     if len(self.residues) > 0:
-      self.chains.append(Chain(self.oline.chain_name, self.residues))
+      self.chains.append(PdbChain(self.oline.chain_name, self.residues))
       self.residues = []
 
   def add_model(self):
     self.add_chain()
     if len(self.chains) > 0:
-      self.models.append(Model(self.model_num, self.chains))
+      self.models.append(PdbModel(self.model_num, self.chains))
       self.chains = []
       self.model_num += 1
 
@@ -206,3 +239,15 @@ def write_residue(residue):
       (num_atom, atom.name, residue.name, 'A', residue.num, atom[0], atom[1], atom[2] , 1.00 , 0.00, atom.name[0]), end="")
   num_atom += 1
  
+def download_pdb(pdbid):
+  """
+  downloading pdb doesn't always succeed. 
+  """
+  url = f"https://files.rcsb.org/download/{pdbid}.pdb"
+  r = requests.get(url, allow_redirects=True)
+  return r.content
+
+def download_rcsb(filename):
+  url = f"https://files.rcsb.org/download/{filename}"
+  r = requests.get(url, allow_redirects=True)
+  return r.content

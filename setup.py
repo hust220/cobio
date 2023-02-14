@@ -15,15 +15,15 @@ cppfiles = glob.glob("ext/*.cpp")
 print(cppfiles)
 
 ext_modules = [
-    Extension("_jnpy", cppfiles, extra_compile_args=['-std=c++20'])
+    Extension("_cobio", cppfiles, extra_compile_args=['-std=c++20'])
 ]
 
 setup(
-    name="jnpy",
+    name="cobio",
     version=__version__,
     author="Jian Wang",
     author_email="jianopt@gmail.com",
-    url="https://github.com/hust220/jnpy",
+    url="https://github.com/hust220/cobio",
     description="Jian's Python Library",
     long_description="",
     include_package_data=True,

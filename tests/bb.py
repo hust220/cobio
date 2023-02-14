@@ -1,4 +1,4 @@
-import jnpy as jp
+import cobio as jp
 
 f = open('bb.pdb', 'r')
 pdb = jp.Pdb(f)

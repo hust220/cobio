@@ -2,7 +2,7 @@ import plotly.graph_objects as go
 import numpy as np
 import math
 
-import jnpy as jp
+import cobio as jp
 
 p = jp.Pocket('1ec0.rec.pdb', '1ec0.lig.mol2', box=20, bin=5)
 

@@ -1,7 +1,7 @@
 import numpy as np
 import math
 import matplotlib.pyplot as plt
-import jnpy as jp
+import cobio as jp
 
 p = jp.Pocket('1ec0.rec.pdb', '1ec0.lig.mol2', box=15, bin=1.5)
 

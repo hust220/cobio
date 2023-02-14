@@ -3,7 +3,7 @@
 #include "./py_pdb.h"
 #include "./py_utils.h"
 
-static PyMethodDef jnpy_methods[] = {
+static PyMethodDef cobio_methods[] = {
     // {"add", add, METH_VARARGS, "Add"},
     //    {"newatom", newatom, METH_VARARGS, "New Atom"},
     {"suppos", suppos, METH_VARARGS, "Superposion"},
@@ -18,16 +18,16 @@ static PyMethodDef jnpy_methods[] = {
     {NULL, NULL, 0, NULL} // sentinel
 };
 
-static PyModuleDef jnpy_module = {
+static PyModuleDef cobio_module = {
     .m_base = PyModuleDef_HEAD_INIT,
-    .m_name = "_jnpy",
+    .m_name = "_cobio",
     .m_doc = "Jian's Python Library",
     .m_size = -1,
-    .m_methods = jnpy_methods,
+    .m_methods = cobio_methods,
 };
 
-PyMODINIT_FUNC PyInit__jnpy(void) {
-  // return PyModule_Create(&jnpy_module);
+PyMODINIT_FUNC PyInit__cobio(void) {
+  // return PyModule_Create(&cobio_module);
 
   PyObject *m;
 
@@ -37,7 +37,7 @@ PyMODINIT_FUNC PyInit__jnpy(void) {
   if (PyType_Ready(&PdbType) < 0)
     return NULL;
 
-  m = PyModule_Create(&jnpy_module);
+  m = PyModule_Create(&cobio_module);
   if (m == NULL)
     return NULL;
 

@@ -1,6 +1,6 @@
 import tarfile
 import sys
-import jnpy as jp
+import cobio as jp
 
 proteins_tar = 'proteins.tar'
 def get_protein_sequences(outfile):                                                                                                                                              

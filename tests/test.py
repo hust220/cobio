@@ -1,5 +1,5 @@
-import jnpy as jp
-from jnpy import bio
+import cobio as jp
+from cobio import bio
 
 pdb1 = bio.read_pdb('7joz.pdb')
 pdb2 = bio.read_pdb('PW0441_WT_D1R_dock.pdb')

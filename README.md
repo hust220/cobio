@@ -1,1 +1,1 @@
-pip install jnpy
+pip install cobio
