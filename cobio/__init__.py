@@ -1,11 +1,9 @@
-from .pdb import *
-from .utils import *
-from _cobio import *
+# import bio
+# import tasks
+# from _cobio import *
 
-from pkg_resources import resource_string
+# from pkg_resources import resource_string
 
 # def medusa():
 #     medusa_parameter_dir = resource_string(__name__, 'medusa_parameter')
 #     return medusa_init(medusa_parameter_dir)
-
-

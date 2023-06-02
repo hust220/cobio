@@ -15,7 +15,7 @@ cppfiles = glob.glob("ext/*.cpp")
 print(cppfiles)
 
 ext_modules = [
-    Extension("_cobio", cppfiles, extra_compile_args=['-std=c++20'])
+    Extension("_cobio", cppfiles, extra_compile_args=['-std=c++20', '-w'])
 ]
 
 setup(

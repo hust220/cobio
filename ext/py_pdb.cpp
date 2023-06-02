@@ -1,9 +1,153 @@
-#include "./py_pdb.h"
-#include "./jnc_geom.h"
+#include "py_pdb.h"
 #include "./jnc_bio_pdb.h"
+#include "./jnc_geom.h"
+#include "./py_cif.h"
 
 using Residue = jnc::bio::PdbResidue;
 using Atom = jnc::bio::PdbAtom;
+
+struct cif_line_t {
+  int atom_num;// id: 
+  std::string atom_element;// type_symbol: 
+  std::string atom_name;// label_atom_id: 
+  std::string residue_name;// label_comp_id: 
+  std::string chain_name;// label_asym_id: 
+  int residue_num;// label_seq_id: 
+  double x;// Cartn_x: 
+  double y;// Cartn_y: 
+  double z;// Cartn_z: 
+  int model_num; // pdbx_PDB_model_num
+};
+
+void parse_cif_line(cif_line_t &line, const std::map<std::string, std::string> &values) {
+  for (auto &&p : values) {
+    if (p.first == "id") line.atom_num = JN_INT(p.second);
+    else if (p.first == "label_atom_id") line.atom_name = p.second;
+    else if (p.first == "label_comp_id") line.residue_name = p.second;
+    else if (p.first == "label_asym_id") line.chain_name = p.second;
+    else if (p.first == "label_seq_id") line.residue_num = JN_INT(p.second);
+    else if (p.first == "Cartn_x") line.x = JN_DBL(p.second);
+    else if (p.first == "Cartn_y") line.y = JN_DBL(p.second);
+    else if (p.first == "Cartn_z") line.z = JN_DBL(p.second);
+    else if (p.first == "pdbx_PDB_model_num") line.model_num = JN_INT(p.second);
+  }
+}
+
+PyObject *new_atom() {
+  PyObject *dict = PyDict_New();
+  PyDict_SetItemString(dict, "name", Py_BuildValue("s", ""));
+  PyDict_SetItemString(dict, "num", Py_BuildValue("i", 0));
+  PyDict_SetItemString(dict, "coords", PyList_New(3));
+  PyDict_SetItemString(dict, "is_het", PyBool_FromLong(0));
+  return dict;
+}
+
+PyObject *new_residue() {
+  PyObject *dict = PyDict_New();
+  PyDict_SetItemString(dict, "num", Py_BuildValue("i", 0));
+  PyDict_SetItemString(dict, "name", Py_BuildValue("s", ""));
+  PyDict_SetItemString(dict, "atoms", PyList_New(0));
+  return dict;
+}
+
+PyObject *new_chain() {
+  PyObject *dict = PyDict_New();
+  PyDict_SetItemString(dict, "name", Py_BuildValue("s", ""));
+  PyDict_SetItemString(dict, "residues", PyList_New(0));
+  return dict;
+}
+
+PyObject *new_model() {
+  PyObject *dict = PyDict_New();
+  PyDict_SetItemString(dict, "num", Py_BuildValue("i", 0));
+  PyDict_SetItemString(dict, "chains", PyList_New(0));
+  return dict;
+}
+
+PyObject *new_pdb() {
+  PyObject *dict = PyDict_New();
+  PyDict_SetItemString(dict, "name", Py_BuildValue("s", ""));
+  PyDict_SetItemString(dict, "models", PyList_New(0));
+  return dict;
+}
+
+PyObject *read_cif_as_pdb(PyObject *self, PyObject *args) {
+  PyObject *filename_obj;
+  PARSE_TUPLE(args, "O", &filename_obj);
+  std::string filename = o2s(filename_obj);
+  std::ifstream ifile(filename);
+  jnc::bio::CifParser parser(ifile);
+  std::string cat;
+  std::map<std::string, std::string> values;
+  cif_line_t line, old_line;
+
+  // initialize the current atom, current residue, current chain, current model, and a pdb object
+  PyObject *atom = new_atom(), *residue = new_residue(), *chain = new_chain(), *model = new_model(), *pdb = new_pdb();
+  int iatom = 0;
+  while (parser.next(cat, values)) {
+    // if (true) {
+    if (cat == "atom_site") {
+      parse_cif_line(line, values);
+      PyDict_SetItemString(atom, "num", Py_BuildValue("i", line.atom_num));
+      PyDict_SetItemString(atom, "name", Py_BuildValue("s", line.atom_name.c_str()));
+      PyList_SET_ITEM(PyDict_GetItemString(atom, "coords"), 0, Py_BuildValue("d", line.x));
+      PyList_SET_ITEM(PyDict_GetItemString(atom, "coords"), 1, Py_BuildValue("d", line.y));
+      PyList_SET_ITEM(PyDict_GetItemString(atom, "coords"), 2, Py_BuildValue("d", line.z));
+  
+      // if it's not the first atom:
+      if (iatom > 0) {
+        // if the new atom belongs to a different residue with the last atom:
+        if (line.residue_num != old_line.residue_num || line.residue_name != old_line.residue_name || 
+            line.chain_name != old_line.chain_name || line.model_num != old_line.model_num) {
+          // wrap up the current residue and add to the current chain
+          PyDict_SetItemString(residue, "num", Py_BuildValue("i", old_line.residue_num));
+          PyDict_SetItemString(residue, "name", Py_BuildValue("s", old_line.residue_name.c_str()));
+          PyList_Append(PyDict_GetItemString(chain, "residues"), residue);
+          // reset the current residue
+          residue = new_residue();
+        }
+        // if the new atom belongs to a different chain
+        if (line.chain_name != old_line.chain_name) {
+          // wrap up the current chain and add to the current model
+          PyDict_SetItemString(chain, "name", Py_BuildValue("s", old_line.chain_name.c_str()));
+          PyList_Append(PyDict_GetItemString(model, "chains"), chain);
+          // reset the current chain
+          chain = new_chain();
+        }
+        // if the new atom belongs to a different model
+        if (line.model_num != old_line.model_num) {
+        //   wrap up the current model and add to the pdb
+          PyDict_SetItemString(model, "num", Py_BuildValue("i", old_line.model_num));
+          PyList_Append(PyDict_GetItemString(pdb, "models"), model);
+        //   reset the current model
+          model = new_model();
+        }
+      }
+
+      // add atom to the current residue and reset the current atom.
+      PyList_Append(PyDict_GetItemString(residue, "atoms"), atom);
+      atom = new_atom();
+
+      old_line = std::move(line);
+
+      iatom++;
+    }
+  }
+  // wrap up the current residue and add to the current chain
+  PyDict_SetItemString(residue, "num", Py_BuildValue("i", old_line.residue_num));
+  PyDict_SetItemString(residue, "name", Py_BuildValue("s", old_line.residue_name.c_str()));
+  PyList_Append(PyDict_GetItemString(chain, "residues"), residue);
+
+  // wrap up the current chain and add to the current model
+  PyDict_SetItemString(chain, "name", Py_BuildValue("s", old_line.chain_name.c_str()));
+  PyList_Append(PyDict_GetItemString(model, "chains"), chain);
+
+  // wrap up the current model and add to the pdb
+  PyDict_SetItemString(model, "num", Py_BuildValue("i", old_line.model_num));
+  PyList_Append(PyDict_GetItemString(pdb, "models"), model);
+
+  return pdb;
+}
 
 Residue obj2residue(PyObject *o) {
   Residue residue;
@@ -190,4 +334,3 @@ PyTypeObject PdbType = [] {
   obj.tp_methods = Pdb_methods;
   return obj;
 }();
-

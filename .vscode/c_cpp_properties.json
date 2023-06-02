@@ -9,7 +9,7 @@
                 "/gpfs/scratch/juw1179/programs/miniconda/3/envs/bio/include"
             ],
             "defines": [],
-            "compilerPath": "",
+            "compilerPath": "/gpfs/scratch/juw1179/programs/gcc/11.1.0/bin/g++",
             "cStandard": "gnu11",
             "cppStandard": "c++20",
             "intelliSenseMode": "linux-gcc-x64"

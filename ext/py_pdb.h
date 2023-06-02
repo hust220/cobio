@@ -12,5 +12,6 @@
 extern PyTypeObject PdbType;
 
 
+PyObject *read_cif_as_pdb(PyObject *self, PyObject *args);
 
 

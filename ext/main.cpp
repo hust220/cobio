@@ -11,6 +11,7 @@ static PyMethodDef cobio_methods[] = {
     {"align", align, METH_VARARGS, "Apply Superposion"},
     {"rmsd", rmsd, METH_VARARGS, "RMSD"},
     {"map_atoms", map_atoms, METH_VARARGS, "Map Atoms"},
+    {"read_cif_as_pdb", read_cif_as_pdb, METH_VARARGS, "Read cif file as pdb dictionary"},
     {"compound_grow", (PyCFunction)compound_grow, METH_VARARGS | METH_KEYWORDS, "Grow a compound atom by atom"},
     //    {"Amorphize", amorphize, METH_VARARGS, "Amorphize"},
     //    {"aa321", aa321, METH_VARARGS, "aa321"},
